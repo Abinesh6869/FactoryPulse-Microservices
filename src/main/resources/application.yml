@@ -21,54 +21,44 @@ spring:
               - "*"
             allowCredentials: true
             maxAge: 3600
-      # Downstream services also set CORS headers — deduplicate so the browser
-      # never sees two Access-Control-Allow-Origin values on the same response.
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_UNIQUE
       routes:
 
-        # ── fp_identity (9090) ──────────────────────────────────────────────
-        # Auth is public — login / refresh do not require a JWT
+        # ── fp_identity ──────────────────────────────────────────────────────
         - id: identity-auth
-          uri: http://localhost:9090
+          uri: lb://fp-identity
           predicates:
             - Path=/api/auth/**
 
-        # All other identity endpoints
         - id: identity-service
-          uri: http://localhost:9090
+          uri: lb://fp-identity
           predicates:
             - Path=/api/users/**,/api/plants/**,/api/lines/**,/api/machines/**,/api/machine-docs/**,/api/telemetry-points/**,/api/shifts/**,/api/shift-allocations/**,/api/rootcauses/**,/api/alertrules/**,/api/audit-logs/**
 
-        # ── fp_telemetry (9091) ─────────────────────────────────────────────
+        # ── fp_telemetry ─────────────────────────────────────────────────────
         - id: telemetry-service
-          uri: http://localhost:9091
+          uri: lb://fp-telemetry
           predicates:
             - Path=/api/telemetry/**
 
-        # ── fp_events (9092) ────────────────────────────────────────────────
+        # ── fp_events ────────────────────────────────────────────────────────
         - id: events-service
-          uri: http://localhost:9092
+          uri: lb://fp-events
           predicates:
             - Path=/api/downtimes/**,/api/alerts/**
 
-        # ── fp_maintenance (9093) ───────────────────────────────────────────
+        # ── fp_maintenance ───────────────────────────────────────────────────
         - id: maintenance-service
-          uri: http://localhost:9093
+          uri: lb://fp-maintenance
           predicates:
             - Path=/api/workorders/**,/api/maintenance-logs/**
 
-        # ── fp_reporting (9094) ─────────────────────────────────────────────
+        # ── fp_reporting ─────────────────────────────────────────────────────
         - id: reporting-service
-          uri: http://localhost:9094
+          uri: lb://fp-reporting
           predicates:
-            - Path=/api/reports/**
-
-        # ── fp_analytics (9095) ─────────────────────────────────────────────
-        - id: analytics-service
-          uri: http://localhost:9095
-          predicates:
-            - Path=/api/oee/**,/api/kpis/**,/api/quality-correlation/**,/api/throughput-forecasts/**
+            - Path=/api/reports/**,/api/oee/**,/api/kpis/**,/api/quality-correlation/**,/api/throughput-forecasts/**
 
 server:
   port: 8082

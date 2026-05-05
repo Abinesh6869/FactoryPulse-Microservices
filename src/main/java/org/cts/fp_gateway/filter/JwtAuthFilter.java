@@ -1,31 +1,31 @@
 package org.cts.fp_gateway.filter;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cts.fp_gateway.util.JwtUtil;
+import org.springframework.cloud.client.loadbalancer.reactive.ReactorLoadBalancerExchangeFilterFunction;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import org.springframework.http.HttpMethod;
-
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class JwtAuthFilter implements GlobalFilter, Ordered {
 
     private final JwtUtil jwtUtil;
+    private final WebClient webClient;
 
     /**
      * Paths that bypass JWT validation entirely.
@@ -38,6 +38,16 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/swagger-ui",
             "/v3/api-docs"
     );
+
+    public JwtAuthFilter(JwtUtil jwtUtil,
+                         ReactorLoadBalancerExchangeFilterFunction lbFunction) {
+        this.jwtUtil = jwtUtil;
+        // Uses service discovery — resolves "fp-identity" from Eureka via LoadBalancer
+        this.webClient = WebClient.builder()
+                .baseUrl("http://fp-identity")
+                .filter(lbFunction)
+                .build();
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -59,13 +69,41 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             return sendUnauthorized(exchange, "Missing or invalid Authorization header");
         }
 
+        // Step 1: validate JWT signature + expiry locally (fast, no network)
         try {
             jwtUtil.validateToken(authHeader.substring(7));
-            return chain.filter(exchange);
         } catch (Exception e) {
             log.warn("Gateway JWT validation failed for path {}: {}", path, e.getMessage());
             return sendUnauthorized(exchange, "Invalid or expired token");
         }
+
+        // Step 2: check token blacklist via fp_identity (catches logged-out tokens)
+        // Resolve blacklist check first, THEN call chain.filter so routing errors
+        // are never caught by the blacklist onErrorResume (which caused empty 200 when
+        // a downstream service was down).
+        final String finalAuthHeader = authHeader;
+        Mono<Boolean> blacklisted = webClient.get()
+                .uri("/api/auth/token/validate")
+                .header(HttpHeaders.AUTHORIZATION, finalAuthHeader)
+                .retrieve()
+                .toBodilessEntity()
+                .map(response -> false)
+                .onErrorResume(ex -> {
+                    if (ex instanceof org.springframework.web.reactive.function.client.WebClientResponseException wcex
+                            && wcex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+                        log.warn("Blacklisted token rejected for path {}", path);
+                        return Mono.just(true);
+                    }
+                    log.warn("Could not reach fp_identity for blacklist check on path {}: {} — allowing through", path, ex.getMessage());
+                    return Mono.just(false);
+                });
+
+        return blacklisted.flatMap(isBlacklisted -> {
+            if (isBlacklisted) {
+                return sendUnauthorized(exchange, "Token has been invalidated. Please login again.");
+            }
+            return chain.filter(exchange);
+        });
     }
 
     private boolean isPublic(String path) {

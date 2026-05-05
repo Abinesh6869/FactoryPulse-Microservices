@@ -73,6 +73,9 @@ public class DowntimeEventController {
         if (machineId != null)
             return ResponseEntity.ok(ApiResponse.success("Downtimes fetched successfully",
                     downtimeService.getDowntimesByMachine(machineId, from, to)));
+        if (from != null && to != null)
+            return ResponseEntity.ok(ApiResponse.success("Downtimes fetched successfully",
+                    downtimeService.getDowntimesByDateRange(from, to)));
         return ResponseEntity.ok(ApiResponse.success("Downtimes fetched successfully",
                 new PageResponse<>(downtimeService.getAllDowntimes(search, pageable))));
     }

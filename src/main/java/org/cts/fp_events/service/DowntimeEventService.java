@@ -6,8 +6,7 @@ import org.cts.fp_events.client.IdentityClient;
 import org.cts.fp_events.dto.request.AuditLogRequest;
 import org.cts.fp_events.dto.request.CorrectiveActionRequest;
 import org.cts.fp_events.dto.request.DowntimeEventRequest;
-import org.cts.fp_events.dto.response.CorrectiveActionResponse;
-import org.cts.fp_events.dto.response.DowntimeEventResponse;
+import org.cts.fp_events.dto.response.*;
 import org.cts.fp_events.exception.BadRequestException;
 import org.cts.fp_events.exception.ResourceNotFoundException;
 import org.cts.fp_events.model.CorrectiveAction;
@@ -38,12 +37,51 @@ public class DowntimeEventService {
                                                 Long loggedById,
                                                 String loggedByName,
                                                 String loggedByEmployeeId) {
+        // Resolve lineName / machineName from fp_identity when the frontend omits them
+        // (matches monolith behaviour — monolith looks up from local LineRepository / MachineRepository)
+        if (request.getLineName() == null || request.getLineName().isBlank()) {
+            try {
+                IdentityApiResponse<LineInfo> lineResp =
+                        identityClient.getLineById(request.getLineId());
+                if (lineResp != null && lineResp.getData() != null)
+                    request.setLineName(lineResp.getData().getName());
+                if (request.getLineName() == null) request.setLineName("Unknown Line");
+            } catch (Exception e) {
+                log.warn("Could not resolve lineName for lineId={}: {}", request.getLineId(), e.getMessage());
+                request.setLineName("Unknown Line");
+            }
+        }
+        if (request.getMachineName() == null || request.getMachineName().isBlank()) {
+            try {
+                IdentityApiResponse<org.cts.fp_events.dto.response.MachineInfo> machineResp =
+                        identityClient.getMachineById(request.getMachineId());
+                if (machineResp != null && machineResp.getData() != null)
+                    request.setMachineName(machineResp.getData().getName());
+                if (request.getMachineName() == null) request.setMachineName("Unknown Machine");
+            } catch (Exception e) {
+                log.warn("Could not resolve machineName for machineId={}: {}", request.getMachineId(), e.getMessage());
+                request.setMachineName("Unknown Machine");
+            }
+        }
+
         // Block if machine already has an active downtime
         boolean alreadyDown = downtimeEventRepository.findByEndAtIsNull().stream()
                 .anyMatch(d -> d.getMachineId().equals(request.getMachineId()));
         if (alreadyDown) {
             throw new BadRequestException("Machine '" + request.getMachineName()
                     + "' already has an active downtime. Close it before creating a new one.");
+        }
+        // Block if machine status is already DOWN (matches monolith)
+        try {
+            IdentityApiResponse<MachineInfo> machineResp = identityClient.getMachineById(request.getMachineId());
+            if (machineResp != null && machineResp.getData() != null
+                    && "DOWN".equalsIgnoreCase(machineResp.getData()    .getStatus())) {
+                throw new BadRequestException("Machine '" + request.getMachineName() + "' is already marked as DOWN.");
+            }
+        } catch (BadRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("Could not check machine status for machineId={}: {}", request.getMachineId(), e.getMessage());
         }
         // Block if startAt is in the future
         if (request.getStartAt() != null && request.getStartAt().isAfter(LocalDateTime.now())) {
@@ -74,6 +112,8 @@ public class DowntimeEventService {
             event.setDurationSec(Duration.between(request.getStartAt(), request.getEndAt()).toSeconds());
         }
         DowntimeEvent created = downtimeEventRepository.save(event);
+        // Set machine status to DOWN (matches monolith)
+        try { identityClient.updateMachineStatus(request.getMachineId(), "DOWN"); } catch (Exception e) { log.error("MACHINE STATUS UPDATE FAILED for machineId={}", request.getMachineId(), e); }
         try { identityClient.recordAuditLog(new AuditLogRequest("CREATE_DOWNTIME", "DowntimeEvent", "Created downtime ID: " + created.getDowntimeId() + " on machine: " + event.getMachineName())); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toDowntimeResponse(created);
     }
@@ -95,6 +135,11 @@ public class DowntimeEventService {
 
     public List<DowntimeEventResponse> getDowntimesByMachine(Long machineId, LocalDateTime from, LocalDateTime to) {
         return downtimeEventRepository.findByMachineIdAndStartAtBetweenOrderByStartAtDesc(machineId, from, to)
+                .stream().map(this::toDowntimeResponse).collect(Collectors.toList());
+    }
+
+    public List<DowntimeEventResponse> getDowntimesByDateRange(LocalDateTime from, LocalDateTime to) {
+        return downtimeEventRepository.findByStartAtBetween(from, to)
                 .stream().map(this::toDowntimeResponse).collect(Collectors.toList());
     }
 
@@ -120,6 +165,8 @@ public class DowntimeEventService {
         event.setEndAt(endAt);
         event.setDurationSec(Duration.between(event.getStartAt(), endAt).toSeconds());
         DowntimeEvent closed = downtimeEventRepository.save(event);
+        // Set machine status back to ACTIVE (matches monolith)
+        try { identityClient.updateMachineStatus(closed.getMachineId(), "ACTIVE"); } catch (Exception e) { log.warn("Could not set machine {} to ACTIVE: {}", closed.getMachineId(), e.getMessage()); }
         try { identityClient.recordAuditLog(new AuditLogRequest("CLOSE_DOWNTIME", "DowntimeEvent", "Closed downtime ID: " + id)); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toDowntimeResponse(closed);
     }
@@ -137,8 +184,22 @@ public class DowntimeEventService {
                     "Root cause already set ('" + event.getRootCauseCode() + "'). It will be overwritten.";
         }
         event.setRootCauseId(rootCauseId);
-        if (rootCauseCode != null) event.setRootCauseCode(rootCauseCode);
-        if (rootCauseDescription != null) event.setRootCauseDescription(rootCauseDescription);
+        // Auto-resolve code/description from fp_identity if not provided (matches monolith behaviour)
+        String resolvedCode = rootCauseCode;
+        String resolvedDescription = rootCauseDescription;
+        if ((resolvedCode == null || resolvedDescription == null) && rootCauseId != null) {
+            try {
+                IdentityApiResponse<RootCauseInfo> rcResp = identityClient.getRootCauseById(rootCauseId);
+                if (rcResp != null && rcResp.getData() != null) {
+                    if (resolvedCode == null) resolvedCode = rcResp.getData().getCode();
+                    if (resolvedDescription == null) resolvedDescription = rcResp.getData().getDescription();
+                }
+            } catch (Exception e) {
+                log.warn("Could not resolve rootCause details for id={}: {}", rootCauseId, e.getMessage());
+            }
+        }
+        if (resolvedCode != null) event.setRootCauseCode(resolvedCode);
+        if (resolvedDescription != null) event.setRootCauseDescription(resolvedDescription);
         DowntimeEvent tagged = downtimeEventRepository.save(event);
         try { identityClient.recordAuditLog(new AuditLogRequest("TAG_ROOT_CAUSE", "DowntimeEvent", "Tagged root cause ID: " + rootCauseId + " on downtime ID: " + id)); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toDowntimeResponse(tagged, warning);
@@ -157,14 +218,44 @@ public class DowntimeEventService {
             throw new BadRequestException("Due date cannot be in the past.");
         }
 
+        // Auto-resolve assignedToEmployeeId / assignedToName from fp_identity if not provided
+        // (matches monolith behaviour — monolith fetches from User entity)
+        String assignedToEmployeeId = request.getAssignedToEmployeeId();
+        String assignedToName = request.getAssignedToName();
+        if ((assignedToEmployeeId == null || assignedToName == null) && request.getAssignedTo() != null) {
+            try {
+                IdentityApiResponse<UserInfo> userResp = identityClient.getUserById(request.getAssignedTo());
+                if (userResp != null && userResp.getData() != null) {
+                    if (assignedToEmployeeId == null) assignedToEmployeeId = userResp.getData().getEmployeeId();
+                    if (assignedToName == null) assignedToName = userResp.getData().getName();
+                }
+            } catch (Exception e) {
+                log.warn("Could not resolve user details for assignedTo={}: {}", request.getAssignedTo(), e.getMessage());
+            }
+        }
+
+        // Warn if assigned user is not currently on duty (matches monolith behaviour)
+        try {
+            IdentityApiResponse<List<ShiftAllocationResponse>> onDutyResp = identityClient.getOnDuty(null);
+            if (onDutyResp != null && onDutyResp.getData() != null) {
+                boolean isOnDuty = onDutyResp.getData().stream()
+                        .anyMatch(a -> request.getAssignedTo().equals(a.getUserId()));
+                if (!isOnDuty) {
+                    log.warn("User '{}' assigned to corrective action is NOT currently on duty", assignedToName);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not check on-duty status for user {}: {}", request.getAssignedTo(), e.getMessage());
+        }
+
         CorrectiveAction action = new CorrectiveAction();
         action.setDowntimeId(downtime.getDowntimeId());
         action.setMachineName(downtime.getMachineName());
         action.setLineName(downtime.getLineName());
         action.setRootCauseCode(downtime.getRootCauseCode());
         action.setAssignedToId(request.getAssignedTo());
-        action.setAssignedToEmployeeId(request.getAssignedToEmployeeId());
-        action.setAssignedToName(request.getAssignedToName());
+        action.setAssignedToEmployeeId(assignedToEmployeeId);
+        action.setAssignedToName(assignedToName);
         action.setDescription(request.getDescription());
         action.setDueDate(request.getDueDate());
         action.setStatus("OPEN");
@@ -175,8 +266,8 @@ public class DowntimeEventService {
         try {
             Notification notification = new Notification();
             notification.setUserId(request.getAssignedTo());
-            notification.setEmployeeId(request.getAssignedToEmployeeId());
-            notification.setUserName(request.getAssignedToName());
+            notification.setEmployeeId(assignedToEmployeeId);
+            notification.setUserName(assignedToName);
             notification.setAlertId(null);
             notification.setChannel("IN_APP");
             notification.setMessage("You have been assigned a Corrective Action: \"" + request.getDescription()

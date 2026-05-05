@@ -15,10 +15,10 @@ public class CorrectiveActionRequest {
     @NotNull(message = "Assigned user ID is required")
     private Long assignedTo;
 
-    @NotBlank(message = "Assigned user employee ID is required")
+    // Optional — auto-resolved from fp_identity if not provided
     private String assignedToEmployeeId;
 
-    @NotBlank(message = "Assigned user name is required")
+    // Optional — auto-resolved from fp_identity if not provided
     private String assignedToName;
 
     @NotBlank(message = "Description is required")

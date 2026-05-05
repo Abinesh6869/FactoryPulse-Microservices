@@ -1,6 +1,5 @@
 package org.cts.fp_events.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -12,13 +11,11 @@ public class DowntimeEventRequest {
     @NotNull(message = "Line ID is required")
     private Long lineId;
 
-    @NotBlank(message = "Line name is required")
     private String lineName;
 
     @NotNull(message = "Machine ID is required")
     private Long machineId;
 
-    @NotBlank(message = "Machine name is required")
     private String machineName;
 
     private LocalDateTime startAt;

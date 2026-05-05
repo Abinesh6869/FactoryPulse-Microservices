@@ -2,6 +2,7 @@ package org.cts.fp_events.controller;
 
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
+import org.cts.fp_events.dto.request.InternalNotificationRequest;
 import org.cts.fp_events.dto.response.AlertResponse;
 import org.cts.fp_events.dto.response.NotificationResponse;
 import org.cts.fp_events.dto.response.PageResponse;
@@ -68,5 +69,15 @@ public class AlertController {
     public ResponseEntity<ApiResponse<NotificationResponse>> markNotificationRead(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Notification marked as read",
                 alertService.markNotificationRead(id)));
+    }
+
+    // Internal endpoint — called by fp_maintenance to push work-order notifications
+    @PostMapping("/notifications/internal")
+    public ResponseEntity<ApiResponse<Void>> createInternalNotification(
+            @RequestBody InternalNotificationRequest request) {
+        alertService.createInternalNotification(
+                request.getUserId(), request.getEmployeeId(),
+                request.getUserName(), request.getMessage());
+        return ResponseEntity.ok(ApiResponse.success("Notification created", null));
     }
 }

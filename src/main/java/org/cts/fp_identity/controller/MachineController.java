@@ -44,4 +44,12 @@ public class MachineController {
             @Valid @RequestBody MachineRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Machine updated successfully", machineService.updateMachine(id, request)));
     }
+
+    // Internal endpoint — called by fp_maintenance after maintenance completes
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<MachineResponse>> updateMachineStatus(
+            @PathVariable Long id, @RequestParam String status) {
+        return ResponseEntity.ok(ApiResponse.success("Machine status updated successfully",
+                machineService.updateMachineStatus(id, status)));
+    }
 }

@@ -58,6 +58,15 @@ public class MachineService {
         return machineRepository.findByLineLineId(lineId).stream().map(this::toResponse).collect(Collectors.toList());
     }
 
+    public MachineResponse updateMachineStatus(Long id, String status) {
+        Machine machine = machineRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + id));
+        machine.setStatus(status);
+        Machine saved = machineRepository.save(machine);
+        auditLogService.log("UPDATE_MACHINE_STATUS", "Machine", "Machine ID: " + id + " status set to: " + status);
+        return toResponse(saved);
+    }
+
     public MachineResponse updateMachine(Long id, MachineRequest request) {
         Machine machine = machineRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + id));

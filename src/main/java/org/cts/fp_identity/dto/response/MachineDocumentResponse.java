@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 public class MachineDocumentResponse {
     private Long docId;
     private Long machineId;
-    private String machineName;
+    private String name;
     private String docType;
     private String fileUri;
     private LocalDateTime uploadedAt;

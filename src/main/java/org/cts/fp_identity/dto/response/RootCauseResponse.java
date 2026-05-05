@@ -12,7 +12,7 @@ public class RootCauseResponse {
     private String code;
     private String description;
     private String category;
-    private Long createdById;
+    private Long createdBy;
     private String createdByEmployeeId;
     private String createdByName;
     private LocalDateTime createdAt;

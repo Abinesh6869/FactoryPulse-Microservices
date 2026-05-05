@@ -11,11 +11,12 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
-    public void sendResetEmail(String toEmail, String token) {
+    public void sendResetEmail(String to,String token) {
+        String link = "http://localhost:5173/email/reset?token=" + token;
         SimpleMailMessage message = new SimpleMailMessage();
-        message.setTo(toEmail);
-        message.setSubject("FactoryPulse - Password Reset");
-        message.setText("Your password reset token is: " + token + "\nThis token expires in 15 minutes.");
+        message.setTo(to);
+        message.setSubject("Factory Pulse Password Reset");
+        message.setText("Click here to reset password: " + link + " Only valid for 15 minutes.");
         mailSender.send(message);
     }
 }

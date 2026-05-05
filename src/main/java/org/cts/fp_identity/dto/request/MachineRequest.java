@@ -14,6 +14,7 @@ public class MachineRequest {
     @NotBlank(message = "Name is required")
     private String name;
 
+    @NotBlank(message = "Machine type is required")
     private String type;
     private String model;
     private String serialNumber;

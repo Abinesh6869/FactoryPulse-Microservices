@@ -82,7 +82,10 @@ public class UserService {
         return toResponse(saved);
     }
 
-    public UserResponse toggleUserStatus(Long id, boolean active) {
+    public UserResponse toggleUserStatus(Long id, boolean active, Long currentUserId) {
+        if (!active && id.equals(currentUserId)) {
+            throw new BadRequestException("You cannot deactivate your own account.");
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
         user.setStatus(active ? "ACTIVE" : "INACTIVE");

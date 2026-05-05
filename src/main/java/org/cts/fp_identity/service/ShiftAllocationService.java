@@ -1,6 +1,9 @@
 package org.cts.fp_identity.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.cts.fp_identity.client.EventsClient;
+import org.cts.fp_identity.dto.request.InternalNotificationRequest;
 import org.cts.fp_identity.dto.request.ShiftAllocationRequest;
 import org.cts.fp_identity.dto.response.ShiftAllocationResponse;
 import org.cts.fp_identity.dto.response.ShiftAllocationSummaryResponse;
@@ -22,6 +25,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ShiftAllocationService {
 
@@ -29,6 +33,7 @@ public class ShiftAllocationService {
     private final ShiftRepository shiftRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final EventsClient eventsClient;
 
     public ShiftAllocationSummaryResponse allocate(Long shiftId, ShiftAllocationRequest request, Long allocatedById) {
         Shift shift = shiftRepository.findById(shiftId)
@@ -69,7 +74,20 @@ public class ShiftAllocationService {
             allocation.setShift(shift);
             allocation.setUser(user);
             allocation.setAllocatedBy(allocatedBy);
-            allocated.add(toResponse(shiftAllocationRepository.save(allocation)));
+            ShiftAllocationResponse saved = toResponse(shiftAllocationRepository.save(allocation));
+            allocated.add(saved);
+
+            // Notify the allocated operator/technician
+            try {
+                eventsClient.sendNotification(new InternalNotificationRequest(
+                        user.getUserId(), user.getEmployeeId(), user.getUserName(),
+                        "You have been allocated to shift: " + shift.getName()
+                                + " on " + shift.getDate()
+                                + " (" + shift.getStartTime() + " - " + shift.getEndTime() + ")"
+                                + " by " + allocatedBy.getUserName()));
+            } catch (Exception e) {
+                log.warn("Failed to send shift allocation notification to userId={}: {}", user.getUserId(), e.getMessage());
+            }
         }
 
         auditLogService.log("ALLOCATE_SHIFT", "ShiftAllocation",
@@ -105,10 +123,25 @@ public class ShiftAllocationService {
     }
 
     public void removeAllocation(Long allocationId) {
-        if (!shiftAllocationRepository.existsById(allocationId))
-            throw new ResourceNotFoundException("Allocation not found with id: " + allocationId);
+        ShiftAllocation allocation = shiftAllocationRepository.findById(allocationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Allocation not found with id: " + allocationId));
+
+        User user = allocation.getUser();
+        Shift shift = allocation.getShift();
+
         shiftAllocationRepository.deleteById(allocationId);
         auditLogService.log("REMOVE_SHIFT_ALLOCATION", "ShiftAllocation", "Removed allocation ID: " + allocationId);
+
+        // Notify the removed user
+        try {
+            eventsClient.sendNotification(new InternalNotificationRequest(
+                    user.getUserId(), user.getEmployeeId(), user.getUserName(),
+                    "You have been removed from shift: " + shift.getName()
+                            + " on " + shift.getDate()
+                            + " (" + shift.getStartTime() + " - " + shift.getEndTime() + ")"));
+        } catch (Exception e) {
+            log.warn("Failed to send shift removal notification to userId={}: {}", user.getUserId(), e.getMessage());
+        }
     }
 
     public List<User> getOnDutyUsersByRole(Role role) {

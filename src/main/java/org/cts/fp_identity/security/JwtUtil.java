@@ -72,6 +72,20 @@ public class JwtUtil {
                 .toLocalDateTime();
     }
 
+    public String generateServiceToken() {
+        long hundredYearsMs = 100L * 365 * 24 * 60 * 60 * 1000;
+        return Jwts.builder()
+                .setSubject("system@factorypulse.internal")
+                .claim("role", "ADMIN")
+                .claim("userId", 0L)
+                .claim("userName", "System")
+                .claim("employeeId", "SYS-001")
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + hundredYearsMs))
+                .signWith(key)
+                .compact();
+    }
+
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);

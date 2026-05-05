@@ -73,7 +73,7 @@ public class RootCauseService {
         return RootCauseResponse.builder()
                 .rootCauseId(rc.getRootCauseId()).code(rc.getCode())
                 .description(rc.getDescription()).category(rc.getCategory())
-                .createdById(rc.getCreatedBy() != null ? rc.getCreatedBy().getUserId() : null)
+                .createdBy(rc.getCreatedBy() != null ? rc.getCreatedBy().getUserId() : null)
                 .createdByEmployeeId(rc.getCreatedBy() != null ? rc.getCreatedBy().getEmployeeId() : null)
                 .createdByName(rc.getCreatedBy() != null ? rc.getCreatedBy().getUserName() : null)
                 .createdAt(rc.getCreatedAt())

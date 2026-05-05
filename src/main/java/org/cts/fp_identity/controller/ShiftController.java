@@ -3,6 +3,7 @@ package org.cts.fp_identity.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.cts.fp_identity.dto.request.ShiftRequest;
+import org.cts.fp_identity.dto.response.BulkShiftResult;
 import org.cts.fp_identity.dto.response.PageResponse;
 import org.cts.fp_identity.dto.response.ShiftResponse;
 import org.cts.fp_identity.exception.ApiResponse;
@@ -14,6 +15,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 
@@ -51,6 +53,16 @@ public class ShiftController {
             return ResponseEntity.ok(ApiResponse.success("Shifts fetched successfully", shiftService.getShiftsByDateRange(from, to)));
         return ResponseEntity.ok(ApiResponse.success("Shifts fetched successfully",
                 new PageResponse<>(shiftService.getAllShifts(search, pageable))));
+    }
+
+    @PostMapping("/bulk")
+    public ResponseEntity<ApiResponse<BulkShiftResult>> bulkCreateShifts(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty())
+            return ResponseEntity.badRequest().body(ApiResponse.error("CSV file is empty"));
+        BulkShiftResult result = shiftService.bulkCreateShifts(file);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Bulk upload: " + result.getCreated() + " created, " +
+                result.getSkipped() + " skipped, " + result.getFailed() + " failed", result));
     }
 
     @PutMapping("/{id}")

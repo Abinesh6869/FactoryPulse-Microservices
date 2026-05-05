@@ -75,6 +75,10 @@ public class AuthService {
         auditLogService.log(user, "UPDATE_PASSWORD", "User", "Password updated via token for: " + user.getEmail());
     }
 
+    public boolean isTokenBlacklisted(String token) {
+        return blacklistedTokenRepository.existsByToken(token);
+    }
+
     public void logout(String token) {
         if (blacklistedTokenRepository.existsByToken(token))
             throw new BadRequestException("Already logged out");

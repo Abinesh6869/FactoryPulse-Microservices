@@ -49,6 +49,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST,   "/api/machines/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/api/machines/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/machines/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PATCH,  "/api/machines/*/status").authenticated()
                 .requestMatchers(HttpMethod.GET,    "/api/machines/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "OPERATOR", "TECHNICIAN", "QUALITY_ENGINEER")
 
                 // SHIFTS
@@ -73,9 +74,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/alertrules/**").hasRole("ADMIN")
 
                 // MACHINE DOCUMENTS
-                .requestMatchers(HttpMethod.POST,   "/api/machine-docs/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.PATCH,  "/api/machine-docs/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/machine-docs/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST,   "/api/machine-docs/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR")
+                .requestMatchers(HttpMethod.PATCH,  "/api/machine-docs/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR")
+                .requestMatchers(HttpMethod.DELETE, "/api/machine-docs/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR")
                 .requestMatchers(HttpMethod.GET,    "/api/machine-docs/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR")
 
                 // KPIs
@@ -85,9 +86,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,   "/api/kpis/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER")
 
                 // SHIFT ALLOCATIONS
-                .requestMatchers(HttpMethod.POST,   "/api/shift-allocations/**").hasAnyRole("ADMIN", "MANAGER")
-                .requestMatchers(HttpMethod.DELETE, "/api/shift-allocations/**").hasAnyRole("ADMIN", "MANAGER")
-                .requestMatchers(HttpMethod.GET,    "/api/shift-allocations/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR")
+                .requestMatchers(HttpMethod.POST,   "/api/shift-allocations/**").hasAnyRole("ADMIN", "SUPERVISOR")
+                .requestMatchers(HttpMethod.DELETE, "/api/shift-allocations/**").hasAnyRole("ADMIN", "SUPERVISOR")
+                .requestMatchers(HttpMethod.GET,    "/api/shift-allocations/**").hasAnyRole("ADMIN", "SUPERVISOR", "MANAGER", "OPERATOR", "TECHNICIAN")
 
                 // AUDIT LOGS
                 .requestMatchers(HttpMethod.POST, "/api/audit-logs/record").authenticated()

@@ -10,6 +10,8 @@ import org.cts.fp_identity.exception.ApiResponse;
 import org.cts.fp_identity.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.cts.fp_identity.security.UserPrincipal;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,9 +52,12 @@ public class UserController {
 
     @PatchMapping("/{id}/status")
     public ResponseEntity<ApiResponse<UserResponse>> toggleStatus(@PathVariable Long id,
-            @RequestParam boolean active) {
+            @RequestParam boolean active,
+            Authentication authentication) {
+        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                active ? "User activated" : "User deactivated", userService.toggleUserStatus(id, active)));
+                active ? "User activated" : "User deactivated",
+                userService.toggleUserStatus(id, active, principal.getUserId())));
     }
 
     @PostMapping("/bulk")

@@ -54,9 +54,15 @@ public class MachineDocumentService {
     public MachineDocumentResponse verifyDocument(Long id) {
         MachineDocument doc = machineDocumentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Document not found: " + id));
-        doc.setVerified(true);
+        // Toggle verified — matches monolith behaviour (true→false, false→true)
+        if (Boolean.TRUE.equals(doc.getVerified())) {
+            doc.setVerified(Boolean.FALSE);
+        } else {
+            doc.setVerified(Boolean.TRUE);
+        }
         MachineDocument saved = machineDocumentRepository.save(doc);
-        auditLogService.log("VERIFY_DOCUMENT", "MachineDocument", "Verified doc ID: " + id);
+        auditLogService.log("UPDATE_MACHINE_DOCUMENT", "MachineDocument",
+                "Document ID: " + id + " verified status toggled to: " + saved.getVerified());
         return toResponse(saved);
     }
 
@@ -70,7 +76,7 @@ public class MachineDocumentService {
     private MachineDocumentResponse toResponse(MachineDocument d) {
         return MachineDocumentResponse.builder()
                 .docId(d.getDocId()).machineId(d.getMachine().getMachineId())
-                .machineName(d.getMachine().getName()).docType(d.getDocType())
+                .name(d.getMachine().getName()).docType(d.getDocType())
                 .fileUri(d.getFileUri()).uploadedAt(d.getUploadedAt()).verified(d.getVerified())
                 .build();
     }

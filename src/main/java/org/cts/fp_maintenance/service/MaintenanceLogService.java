@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cts.fp_maintenance.client.EventsClient;
 import org.cts.fp_maintenance.client.IdentityClient;
 import org.cts.fp_maintenance.dto.request.AuditLogRequest;
 import org.cts.fp_maintenance.dto.request.MaintenanceLogRequest;
@@ -31,6 +32,7 @@ public class MaintenanceLogService {
     private final WorkOrderRepository workOrderRepository;
     private final ObjectMapper objectMapper;
     private final IdentityClient identityClient;
+    private final EventsClient eventsClient;
 
     public MaintenanceLogResponse createLog(MaintenanceLogRequest request,
                                             Long performedById,
@@ -44,23 +46,44 @@ public class MaintenanceLogService {
                     + request.getWorkOrderId());
         }
 
-        MaintenanceLog log = new MaintenanceLog();
-        log.setWorkOrderId(wo.getWorkOrderId());
-        log.setMachineId(wo.getMachineId());
-        log.setMachineName(wo.getMachineName());
-        log.setPerformedById(performedById);
-        log.setPerformedByName(performedByName);
-        log.setPerformedByEmployeeId(performedByEmployeeId);
-        log.setNotes(request.getNotes());
-        log.setPartsUsedJson(objectMapper.writeValueAsString(request.getPartsUsedJson()));
-        log.setTimeSpentMinutes(request.getTimeSpentMinutes());
+        MaintenanceLog mlog = new MaintenanceLog();
+        mlog.setWorkOrderId(wo.getWorkOrderId());
+        mlog.setMachineId(wo.getMachineId());
+        mlog.setMachineName(wo.getMachineName());
+        mlog.setPerformedById(performedById);
+        mlog.setPerformedByName(performedByName);
+        mlog.setPerformedByEmployeeId(performedByEmployeeId);
+        mlog.setNotes(request.getNotes());
+        mlog.setPartsUsedJson(objectMapper.writeValueAsString(request.getPartsUsedJson()));
+        mlog.setTimeSpentMinutes(request.getTimeSpentMinutes());
 
-        // Auto-close the work order
+        // Auto-close the work order (matches monolith behaviour)
         wo.setStatus("COMPLETED");
         workOrderRepository.save(wo);
 
-        MaintenanceLog created = maintenanceLogRepository.save(log);
-        try { identityClient.recordAuditLog(new AuditLogRequest("CREATE_MAINTENANCE_LOG", "MaintenanceLog", "Created log ID: " + created.getLogId() + " for work order ID: " + log.getWorkOrderId())); } catch (Exception e) { System.out.println("Audit log failed: {}"+ e.getMessage()); }
+        MaintenanceLog created = maintenanceLogRepository.save(mlog);
+
+        // Auto-close linked downtime if still open (matches monolith behaviour)
+        if (wo.getDowntimeId() != null) {
+            try {
+                eventsClient.closeDowntime(wo.getDowntimeId(), java.time.LocalDateTime.now());
+                log.info("Auto-closed downtime ID: {} after maintenance log created", wo.getDowntimeId());
+            } catch (Exception e) {
+                log.warn("Could not auto-close downtime ID={}: {}", wo.getDowntimeId(), e.getMessage());
+            }
+        }
+
+        // Set machine back to ACTIVE (matches monolith behaviour)
+        if (wo.getMachineId() != null) {
+            try {
+                identityClient.updateMachineStatus(wo.getMachineId(), "ACTIVE");
+                log.info("Machine ID: {} set back to ACTIVE after maintenance", wo.getMachineId());
+            } catch (Exception e) {
+                log.warn("Could not update machine status for machineId={}: {}", wo.getMachineId(), e.getMessage());
+            }
+        }
+
+        try { identityClient.recordAuditLog(new AuditLogRequest("CREATE_MAINTENANCE_LOG", "MaintenanceLog", "Created log ID: " + created.getLogId() + " for work order ID: " + mlog.getWorkOrderId())); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toResponse(created);
     }
 
@@ -91,29 +114,29 @@ public class MaintenanceLogService {
                 .orElseThrow(() -> new ResourceNotFoundException("MaintenanceLog not found with id: " + id)));
     }
 
-    private MaintenanceLogResponse toResponse(MaintenanceLog log) {
+    private MaintenanceLogResponse toResponse(MaintenanceLog mlog) {
         List<MaintenanceLogResponse.PartUsed> parts = new ArrayList<>();
         try {
-            if (log.getPartsUsedJson() != null && !log.getPartsUsedJson().isBlank()) {
-                parts = objectMapper.readValue(log.getPartsUsedJson(),
+            if (mlog.getPartsUsedJson() != null && !mlog.getPartsUsedJson().isBlank()) {
+                parts = objectMapper.readValue(mlog.getPartsUsedJson(),
                         new TypeReference<List<MaintenanceLogResponse.PartUsed>>() {});
             }
         } catch (Exception e) {
-            System.out.println("Error parsing partsUsedJson for log ID: " + log.getLogId());
+            log.warn("Error parsing partsUsedJson for log ID: {}", mlog.getLogId());
         }
         return MaintenanceLogResponse.builder()
-                .logId(log.getLogId())
-                .workOrderId(log.getWorkOrderId())
-                .machineId(log.getMachineId())
-                .machineName(log.getMachineName())
-                .performedBy(log.getPerformedById())
-                .performedByName(log.getPerformedByName())
-                .performedByEmployeeId(log.getPerformedByEmployeeId())
-                .performedAt(log.getPerformedAt())
-                .notes(log.getNotes())
+                .logId(mlog.getLogId())
+                .workOrderId(mlog.getWorkOrderId())
+                .machineId(mlog.getMachineId())
+                .machineName(mlog.getMachineName())
+                .performedBy(mlog.getPerformedById())
+                .performedByName(mlog.getPerformedByName())
+                .performedByEmployeeId(mlog.getPerformedByEmployeeId())
+                .performedAt(mlog.getPerformedAt())
+                .notes(mlog.getNotes())
                 .partsUsedJson(parts)
-                .timeSpentMinutes(log.getTimeSpentMinutes())
-                .createdAt(log.getCreatedAt())
+                .timeSpentMinutes(mlog.getTimeSpentMinutes())
+                .createdAt(mlog.getCreatedAt())
                 .build();
     }
 }

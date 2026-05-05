@@ -17,6 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.format.annotation.DateTimeFormat;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -53,10 +56,15 @@ public class WorkOrderController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long machineId,
             @RequestParam(required = false, defaultValue = "") String search,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             @PageableDefault(size = 10, sort = "workOrderId", direction = Sort.Direction.ASC) Pageable pageable) {
         if (id != null)
             return ResponseEntity.ok(ApiResponse.success("Work order fetched successfully",
                     workOrderService.getWorkOrderById(id)));
+        if (from != null && to != null)
+            return ResponseEntity.ok(ApiResponse.success("Work orders fetched successfully",
+                    workOrderService.getWorkOrdersByDateRange(from, to)));
         if (status != null)
             return ResponseEntity.ok(ApiResponse.success("Work orders fetched successfully",
                     workOrderService.getWorkOrdersByStatus(status)));

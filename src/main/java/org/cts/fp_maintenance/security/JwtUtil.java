@@ -54,4 +54,22 @@ public class JwtUtil {
         return (String) Jwts.parserBuilder().setSigningKey(key).build()
                 .parseClaimsJws(token).getBody().get("employeeId");
     }
+
+    /**
+     * Generates a long-lived service token used by background scheduler threads
+     * that have no HTTP request context (no user token to forward).
+     */
+    public String generateServiceToken() {
+        long hundredYearsMs = 100L * 365 * 24 * 60 * 60 * 1000;
+        return Jwts.builder()
+                .setSubject("system@factorypulse.internal")
+                .claim("role", "ADMIN")
+                .claim("userId", 0L)
+                .claim("userName", "System")
+                .claim("employeeId", "SYS-001")
+                .setIssuedAt(new java.util.Date())
+                .setExpiration(new java.util.Date(System.currentTimeMillis() + hundredYearsMs))
+                .signWith(key)
+                .compact();
+    }
 }

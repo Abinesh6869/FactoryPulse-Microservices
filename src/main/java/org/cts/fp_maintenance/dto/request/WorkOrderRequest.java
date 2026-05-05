@@ -12,6 +12,7 @@ public class WorkOrderRequest {
 
     private String machineName;
 
+    @NotNull(message = "Downtime ID is required to create a work order")
     private Long downtimeId;
 
     @NotBlank(message = "Priority is required")

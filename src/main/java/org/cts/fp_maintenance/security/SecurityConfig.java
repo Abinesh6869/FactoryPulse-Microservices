@@ -22,15 +22,19 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> {})
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/workorders/**").hasAnyRole("SUPERVISOR", "MANAGER", "ADMIN")
-                .requestMatchers(HttpMethod.PUT, "/api/workorders/**").hasAnyRole("TECHNICIAN", "SUPERVISOR", "MANAGER", "ADMIN")
-                .requestMatchers(HttpMethod.PATCH, "/api/workorders/**").hasAnyRole("TECHNICIAN", "SUPERVISOR", "MANAGER", "ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/workorders/**").hasAnyRole("MANAGER", "ADMIN")
-                .requestMatchers(HttpMethod.POST, "/api/maintenance-logs/**").hasAnyRole("TECHNICIAN", "SUPERVISOR", "ADMIN")
+                .requestMatchers(HttpMethod.POST,   "/api/workorders/**").hasAnyRole("ADMIN", "SUPERVISOR")
+                .requestMatchers(HttpMethod.PUT,    "/api/workorders/**").hasAnyRole("ADMIN", "SUPERVISOR", "TECHNICIAN")
+                .requestMatchers(HttpMethod.PATCH,  "/api/workorders/**").hasAnyRole("ADMIN", "SUPERVISOR", "TECHNICIAN")
+                .requestMatchers(HttpMethod.DELETE, "/api/workorders/**").hasAnyRole("ADMIN", "SUPERVISOR")
+                .requestMatchers(HttpMethod.GET,    "/api/workorders/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "TECHNICIAN")
+                .requestMatchers(HttpMethod.POST,   "/api/maintenance-logs/**").hasAnyRole("ADMIN", "TECHNICIAN")
+                .requestMatchers(HttpMethod.DELETE, "/api/maintenance-logs/**").hasAnyRole("ADMIN", "TECHNICIAN")
+                .requestMatchers(HttpMethod.GET,    "/api/maintenance-logs/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "TECHNICIAN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

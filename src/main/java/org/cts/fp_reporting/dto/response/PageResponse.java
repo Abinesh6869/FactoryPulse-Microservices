@@ -12,7 +12,10 @@ public class PageResponse<T> {
     private int pageSize;
     private long totalElements;
     private int totalPages;
+    private int numberOfElements;
     private boolean last;
+    private boolean first;
+    private boolean sort;
 
     public PageResponse(Page<T> page) {
         this.content = page.getContent();
@@ -20,6 +23,9 @@ public class PageResponse<T> {
         this.pageSize = page.getSize();
         this.totalElements = page.getTotalElements();
         this.totalPages = page.getTotalPages();
+        this.numberOfElements = page.getNumberOfElements();
         this.last = page.isLast();
+        this.first = page.isFirst();
+        this.sort = page.getSort().isSorted();
     }
 }

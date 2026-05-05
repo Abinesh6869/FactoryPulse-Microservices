@@ -31,6 +31,10 @@ public class TelemetryEvent {
 
     private String machineName;
 
+    private Long lineId;
+
+    private String lineName;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime timeStamp;

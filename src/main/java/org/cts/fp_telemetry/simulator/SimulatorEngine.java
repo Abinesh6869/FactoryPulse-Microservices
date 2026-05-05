@@ -38,8 +38,7 @@ public class SimulatorEngine {
         }
         log.info("Simulator telemetryTick: processing {} machine(s)", machines.size());
         for (MachineInfo machine : machines) {
-            boolean isRunning = "ACTIVE".equalsIgnoreCase(machine.getStatus());
-            machineSimulator.emitTelemetry(machine, isRunning);
+            machineSimulator.emitTelemetry(machine);
         }
     }
 

@@ -19,6 +19,9 @@ public class TelemetryEventRequest {
     @NotBlank(message = "machineName is required")
     private String machineName;
 
+    private Long lineId;
+    private String lineName;
+
     @NotBlank(message = "value is required")
     private String value;
 

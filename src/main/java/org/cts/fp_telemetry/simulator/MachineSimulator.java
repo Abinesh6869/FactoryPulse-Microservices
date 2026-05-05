@@ -22,7 +22,8 @@ public class MachineSimulator {
     private final TelemetryEventRepository telemetryEventRepository;
     private final Random random = new Random();
 
-    public void emitTelemetry(MachineInfo machine, boolean isRunning) {
+    public void emitTelemetry(MachineInfo machine) {
+        boolean active = "ACTIVE".equalsIgnoreCase(machine.getStatus());
         List<TelemetryPointInfo> points;
         try {
             IdentityApiResponse<List<TelemetryPointInfo>> response =
@@ -39,29 +40,43 @@ public class MachineSimulator {
         }
 
         for (TelemetryPointInfo tp : points) {
-            String value = generateValue(tp.getName(), isRunning);
+            String value = generateValue(tp.getName(), active);
             TelemetryEvent event = new TelemetryEvent();
             event.setPointId(tp.getPointId());
             event.setPointName(tp.getName());
             event.setMachineId(machine.getMachineId());
             event.setMachineName(machine.getName());
+            event.setLineId(machine.getLineId());
+            event.setLineName(machine.getLineName());
             event.setValue(value);
             event.setSource("SIMULATOR");
             event.setStatus("OK");
             telemetryEventRepository.save(event);
         }
-        log.info("Simulator: emitted {} telemetry event(s) for machine '{}' (running={})",
-                points.size(), machine.getName(), isRunning);
+        log.info("Simulator: emitted {} telemetry event(s) for machine '{}'", points.size(), machine.getName());
     }
 
-    private String generateValue(String pointName, boolean isRunning) {
+    private String generateValue(String pointName, boolean active) {
+        if (!active) return "run_status".equalsIgnoreCase(pointName) ? "false" : "0";
         return switch (pointName.toLowerCase()) {
-            case "run_status"  -> isRunning ? "true" : "false";
-            case "temperature" -> isRunning ? String.valueOf(60 + random.nextInt(40)) : "stopped";
-            case "speed"       -> isRunning ? String.valueOf(800 + random.nextInt(400)) : "0";
-            case "vibration"   -> isRunning ? String.format("%.2f", random.nextDouble() * 5) : "stopped";
-            case "pressure"    -> isRunning ? String.format("%.1f", 4.0 + random.nextDouble() * 2) : "stopped";
-            default            -> isRunning ? "1" : "0";
+            case "run_status"  -> "true";
+            // mean 75°C, stddev 2 — stays in realistic band e.g. 70–80
+            case "temperature" -> String.valueOf((int) Math.round(clamp(gauss(75, 2), 60, 100)));
+            // mean 950 RPM, stddev 15
+            case "speed"       -> String.valueOf((int) Math.round(clamp(gauss(950, 15), 800, 1200)));
+            // mean 1.5 mm/s, stddev 0.15
+            case "vibration"   -> String.format("%.2f", clamp(gauss(1.5, 0.15), 0.0, 5.0));
+            // mean 5.0 bar, stddev 0.15
+            case "pressure"    -> String.format("%.1f", clamp(gauss(5.0, 0.15), 3.0, 8.0));
+            default            -> "1";
         };
+    }
+
+    private double gauss(double mean, double stddev) {
+        return mean + random.nextGaussian() * stddev;
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

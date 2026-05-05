@@ -13,6 +13,8 @@ public class TelemetryEventResponse {
     private String pointName;
     private Long machineId;
     private String machineName;
+    private Long lineId;
+    private String lineName;
     private LocalDateTime timestamp;
     private String value;
     private String source;

@@ -12,6 +12,10 @@ import java.util.List;
 @Repository
 public interface TelemetryEventRepository extends JpaRepository<TelemetryEvent, Long> {
     Page<TelemetryEvent> findByMachineIdAndTimeStampBetweenOrderByTimeStampDesc(Long machineId, LocalDateTime from, LocalDateTime to, Pageable pageable);
+    Page<TelemetryEvent> findByMachineIdOrderByTimeStampDesc(Long machineId, Pageable pageable);
     Page<TelemetryEvent> findByPointIdAndTimeStampBetweenOrderByTimeStampDesc(Long pointId, LocalDateTime from, LocalDateTime to, Pageable pageable);
+    Page<TelemetryEvent> findByPointIdOrderByTimeStampDesc(Long pointId, Pageable pageable);
     List<TelemetryEvent> findTop10ByMachineIdOrderByTimeStampDesc(Long machineId);
+    // Equivalent of monolith's findByTelemetryPointMachineLineLineId... — uses denormalized lineId
+    List<TelemetryEvent> findByLineIdAndTimeStampBetweenOrderByTimeStampDesc(Long lineId, LocalDateTime from, LocalDateTime to);
 }

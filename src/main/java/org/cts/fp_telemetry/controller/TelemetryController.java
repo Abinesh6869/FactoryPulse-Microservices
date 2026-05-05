@@ -64,7 +64,7 @@ public class TelemetryController {
                     new PageResponse<>(telemetryService.getProductionCountsByLine(lineId, from, to, pageable))));
         if (shiftId != null)
             return ResponseEntity.ok(ApiResponse.success("Production counts fetched successfully",
-                    new PageResponse<>(telemetryService.getProductionCountsByShift(shiftId, pageable))));
+                    telemetryService.getProductionCountsByShift(shiftId, pageable)));
         return ResponseEntity.ok(ApiResponse.success("Please provide lineId or shiftId", null));
     }
 

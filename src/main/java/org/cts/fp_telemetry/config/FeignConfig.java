@@ -6,8 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.cts.fp_telemetry.security.JwtUtil;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Configuration
 @RequiredArgsConstructor
@@ -24,19 +22,7 @@ public class FeignConfig {
 
     @Bean
     public RequestInterceptor jwtRequestInterceptor() {
-        return requestTemplate -> {
-            ServletRequestAttributes attrs =
-                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attrs != null) {
-                // HTTP request context — forward the user's token
-                String auth = attrs.getRequest().getHeader("Authorization");
-                if (auth != null) {
-                    requestTemplate.header("Authorization", auth);
-                    return;
-                }
-            }
-            // No HTTP context (scheduled task) — use service token
-            requestTemplate.header("Authorization", "Bearer " + serviceToken);
-        };
+        return requestTemplate ->
+                requestTemplate.header("Authorization", "Bearer " + serviceToken);
     }
 }

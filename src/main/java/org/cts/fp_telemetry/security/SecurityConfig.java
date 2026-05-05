@@ -22,16 +22,19 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> {})
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Manual telemetry/production submissions — plant-floor roles only
-                .requestMatchers(HttpMethod.POST,  "/api/telemetry/**").hasAnyRole("OPERATOR", "SUPERVISOR", "MANAGER", "ADMIN")
-                // Update production counts — plant-floor roles only
-                .requestMatchers(HttpMethod.PATCH, "/api/telemetry/**").hasAnyRole("OPERATOR", "SUPERVISOR", "MANAGER", "ADMIN")
-                // Read telemetry and production data — all authenticated roles
-                .requestMatchers(HttpMethod.GET,   "/api/telemetry/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
+                .requestMatchers(HttpMethod.POST,  "/api/telemetry/**").hasAnyRole("OPERATOR", "SUPERVISOR", "ADMIN")
+                // Update production counts — ADMIN and OPERATOR only (matches monolith)
+                .requestMatchers(HttpMethod.PATCH, "/api/telemetry/production/updateCount/**").hasAnyRole("ADMIN", "OPERATOR")
+                // Other PATCH — SUPERVISOR can also update
+                .requestMatchers(HttpMethod.PATCH, "/api/telemetry/**").hasAnyRole("OPERATOR", "SUPERVISOR", "ADMIN")
+                // Read telemetry and production data — all plant-floor + management + quality roles
+                .requestMatchers(HttpMethod.GET,   "/api/telemetry/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "OPERATOR", "TECHNICIAN", "QUALITY_ENGINEER")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

@@ -38,6 +38,10 @@ public class ProductionSimulator {
         }
 
         ShiftInfo activeShift = findActiveShift();
+        if (activeShift == null) {
+            log.info("Simulator: line '{}' — no active shift right now, skipping production tick", lineName);
+            return;
+        }
 
         // Reduce production proportionally to active machines
         double capacityRatio = (double) activeMachines / totalMachines;
@@ -47,14 +51,14 @@ public class ProductionSimulator {
         ProductionCount count = new ProductionCount();
         count.setLineId(lineId);
         count.setLineName(lineName);
-        count.setShiftId(activeShift != null ? activeShift.getShiftId() : null);
-        count.setShiftName(activeShift != null ? activeShift.getName() : null);
+        count.setShiftId(activeShift.getShiftId());
+        count.setShiftName(activeShift.getName());
         count.setGoodCount(good);
         count.setRejectCount(reject);
 
         productionCountRepository.save(count);
         log.info("Simulator: recorded production for line '{}' — good={}, reject={}, shiftId={}",
-                lineName, good, reject, activeShift != null ? activeShift.getShiftId() : "none");
+                lineName, good, reject, activeShift.getShiftId());
     }
 
     private ShiftInfo findActiveShift() {

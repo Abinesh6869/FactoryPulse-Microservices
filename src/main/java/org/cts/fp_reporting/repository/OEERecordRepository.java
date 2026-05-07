@@ -24,4 +24,9 @@ public interface OEERecordRepository extends JpaRepository<OEERecord, Long> {
     Optional<OEERecord> findTop1ByLineIdOrderByDateDesc(Long lineId);
 
     List<OEERecord> findByDateBetween(LocalDate start, LocalDate end);
+
+    // ── By shift name (covers all instances of a shift type across dates) ──
+    List<OEERecord> findByShiftNameAndDateBetweenOrderByDateDesc(String shiftName, LocalDate from, LocalDate to);
+
+    List<OEERecord> findByLineIdAndShiftNameAndDateBetweenOrderByDateDesc(Long lineId, String shiftName, LocalDate from, LocalDate to);
 }

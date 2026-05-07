@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -84,65 +85,191 @@ public class ReportService {
         Map<String, Object> metrics = new LinkedHashMap<>();
         if (parameters == null || parameters.isEmpty()) return metrics;
 
-        if ("LINE".equalsIgnoreCase(scope)) {
-            Object lineIdObj = parameters.get("lineId");
-            Object fromObj   = parameters.get("from");
-            Object toObj     = parameters.get("to");
-            if (lineIdObj == null || fromObj == null || toObj == null) return metrics;
+        // ── Resolve common parameters ────────────────────────────────────────────
+        LocalDate from = parameters.containsKey("from")
+                ? LocalDate.parse(parameters.get("from").toString()) : LocalDate.now().minusDays(30);
+        // If "to" not provided, use "from" (single-day report)
+        LocalDate to   = parameters.containsKey("to")
+                ? LocalDate.parse(parameters.get("to").toString())   : from;
+        String fromDT  = from.atStartOfDay().format(DateTimeFormatter.ISO_DATE_TIME);
+        String toDT    = to.atTime(23, 59, 59).format(DateTimeFormatter.ISO_DATE_TIME);
+        String shiftName = parameters.containsKey("shiftName")
+                ? parameters.get("shiftName").toString() : null;
 
-            Long      lineId = Long.valueOf(lineIdObj.toString());
-            LocalDate from   = LocalDate.parse(fromObj.toString());
-            LocalDate to     = LocalDate.parse(toObj.toString());
-            String    fromDT = from.atStartOfDay().format(DateTimeFormatter.ISO_DATE_TIME);
-            String    toDT   = to.atTime(23, 59, 59).format(DateTimeFormatter.ISO_DATE_TIME);
+        // ── SHIFT scope ──────────────────────────────────────────────────────────
+        if ("SHIFT".equalsIgnoreCase(scope) && shiftName != null) {
 
-            // OEE — now in-process (analytics merged into this service)
+            // OEE — by shift name across date range (covers all instances of that shift type)
             try {
-                Page<OEERecordResponse> page = oeeService.getOEEByLineAndDateRange(
-                        lineId, from, to, PageRequest.of(0, 10000));
-                if (page != null) {
-                    List<OEERecordResponse> list = page.getContent();
-                    double avgOEE = list.stream()
+                List<OEERecordResponse> oeeList = oeeService.getOEEByShiftNameAndDateRange(shiftName, from, to);
+                metrics.put("shiftRecords", oeeList.size());
+                if (!oeeList.isEmpty()) {
+                    double avgOEE = oeeList.stream()
+                            .mapToDouble(r -> r.getOeePct() != null ? r.getOeePct() : 0.0)
+                            .average().orElse(0.0);
+                    metrics.put("avgOEE", Math.round(avgOEE * 100.0) / 100.0);
+                }
+                // Derive line IDs from OEE records to fetch production
+                List<Long> lineIds = oeeList.stream()
+                        .map(OEERecordResponse::getLineId)
+                        .filter(java.util.Objects::nonNull)
+                        .distinct()
+                        .collect(Collectors.toList());
+                if (!lineIds.isEmpty()) {
+                    long totalGood = 0, totalBad = 0;
+                    for (Long lid : lineIds) {
+                        try {
+                            var pr = telemetryClient.getProductionByLine(lid, fromDT, toDT, 10000, 0);
+                            if (pr != null && pr.getData() != null && pr.getData().getContent() != null) {
+                                totalGood += pr.getData().getContent().stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
+                                totalBad  += pr.getData().getContent().stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
+                            }
+                        } catch (Exception ex) { log.warn("Production fetch for line {}: {}", lid, ex.getMessage()); }
+                    }
+                    if (totalGood + totalBad > 0) {
+                        metrics.put("totalGood",   totalGood);
+                        metrics.put("totalBad",    totalBad);
+                        metrics.put("qualityRate", Math.round((double) totalGood / (totalGood + totalBad) * 10000.0) / 100.0);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("OEE/production for SHIFT report: {}", e.getMessage());
+            }
+
+            // Downtime — date range only (no shift FK on DowntimeEvent)
+            try {
+                var dtResp = eventsClient.getAllDowntimesByDateRange(fromDT, toDT);
+                if (dtResp != null && dtResp.getData() != null) {
+                    List<DowntimeEventResponse> list = dtResp.getData();
+                    List<DowntimeEventResponse> closed = list.stream()
+                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                            .collect(Collectors.toList());
+                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                    metrics.put("downtimeEventCount", list.size());
+                    metrics.put("totalDowntimeSec",   totalDowntimeSec);
+                    metrics.put("mttrMinutes", !closed.isEmpty()
+                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
+                }
+            } catch (Exception e) {
+                log.warn("Downtime for SHIFT report: {}", e.getMessage());
+            }
+        }
+
+        // ── ALL scope (LINE with no lineId — aggregate all lines) ───────────────
+        else if ("LINE".equalsIgnoreCase(scope) && !parameters.containsKey("lineId")) {
+
+            // OEE — all lines across date range; also derive line IDs for production
+            List<OEERecordResponse> allOeeList = new java.util.ArrayList<>();
+            try {
+                allOeeList = oeeService.getAllOEEByDateRange(from, to);
+                metrics.put("shiftRecords", allOeeList.size());
+                if (!allOeeList.isEmpty()) {
+                    double avgOEE = allOeeList.stream()
+                            .mapToDouble(r -> r.getOeePct() != null ? r.getOeePct() : 0.0)
+                            .average().orElse(0.0);
+                    metrics.put("avgOEE", Math.round(avgOEE * 100.0) / 100.0);
+                }
+
+                // Production — derive line IDs from OEE records, fetch per line
+                List<Long> lineIds = allOeeList.stream()
+                        .map(OEERecordResponse::getLineId)
+                        .filter(java.util.Objects::nonNull)
+                        .distinct()
+                        .collect(Collectors.toList());
+                if (!lineIds.isEmpty()) {
+                    long totalGood = 0, totalBad = 0;
+                    for (Long lid : lineIds) {
+                        try {
+                            var pr = telemetryClient.getProductionByLine(lid, fromDT, toDT, 10000, 0);
+                            if (pr != null && pr.getData() != null && pr.getData().getContent() != null) {
+                                totalGood += pr.getData().getContent().stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
+                                totalBad  += pr.getData().getContent().stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
+                            }
+                        } catch (Exception ex) { log.warn("Production fetch for line {}: {}", lid, ex.getMessage()); }
+                    }
+                    if (totalGood + totalBad > 0) {
+                        metrics.put("totalGood",   totalGood);
+                        metrics.put("totalBad",    totalBad);
+                        metrics.put("qualityRate", Math.round((double) totalGood / (totalGood + totalBad) * 10000.0) / 100.0);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("OEE/production for ALL scope: {}", e.getMessage());
+            }
+
+            // Downtime — all lines, date range
+            try {
+                var dtResp = eventsClient.getAllDowntimesByDateRange(fromDT, toDT);
+                if (dtResp != null && dtResp.getData() != null) {
+                    List<DowntimeEventResponse> list = dtResp.getData();
+                    List<DowntimeEventResponse> closed = list.stream()
+                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                            .collect(Collectors.toList());
+                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                    metrics.put("downtimeEventCount", list.size());
+                    metrics.put("totalDowntimeSec",   totalDowntimeSec);
+                    metrics.put("mttrMinutes", !closed.isEmpty()
+                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
+                }
+            } catch (Exception e) {
+                log.warn("Downtime for ALL scope: {}", e.getMessage());
+            }
+        }
+
+        // ── LINE scope ───────────────────────────────────────────────────────────
+        else if ("LINE".equalsIgnoreCase(scope)) {
+            Object lineIdObj = parameters.get("lineId");
+            if (lineIdObj == null) return metrics;
+            Long lineId = Long.valueOf(lineIdObj.toString());
+
+            // OEE — by line + optional shiftName + date range
+            try {
+                List<OEERecordResponse> oeeList = (shiftName != null)
+                        ? oeeService.getOEEByLineAndShiftNameAndDateRange(lineId, shiftName, from, to)
+                        : oeeService.getOEEByLineAndDateRange(lineId, from, to, PageRequest.of(0, 10000)).getContent();
+                metrics.put("shiftRecords", oeeList.size());
+                if (!oeeList.isEmpty()) {
+                    double avgOEE = oeeList.stream()
                             .mapToDouble(r -> r.getOeePct() != null ? r.getOeePct() : 0.0)
                             .average().orElse(0.0);
                     metrics.put("avgOEE", Math.round(avgOEE * 100.0) / 100.0);
                 }
             } catch (Exception e) {
-                log.warn("Could not fetch OEE data for report metrics: {}", e.getMessage());
+                log.warn("OEE for LINE report: {}", e.getMessage());
             }
 
-            // Downtime — from fp_events
+            // Downtime — line + date range (DowntimeEvent has no shift FK)
             try {
                 var resp = eventsClient.getDowntimesByLine(lineId, fromDT, toDT);
                 if (resp != null && resp.getData() != null) {
                     List<DowntimeEventResponse> list = resp.getData();
-                    long totalDowntimeSec = list.stream()
-                            .mapToLong(d -> d.getDurationSec() != null ? d.getDurationSec() : 0L).sum();
-                    int  count            = list.size();
+                    List<DowntimeEventResponse> closed = list.stream()
+                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                            .collect(Collectors.toList());
+                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                    metrics.put("downtimeEventCount", list.size());
                     metrics.put("totalDowntimeSec",   totalDowntimeSec);
-                    metrics.put("downtimeEventCount",  count);
-                    metrics.put("mttrMinutes", count > 0
-                            ? Math.round(totalDowntimeSec / 60.0 / count * 100.0) / 100.0 : 0.0);
+                    metrics.put("mttrMinutes", !closed.isEmpty()
+                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
                 }
             } catch (Exception e) {
-                log.warn("Could not fetch downtime data for report metrics: {}", e.getMessage());
+                log.warn("Downtime for LINE report: {}", e.getMessage());
             }
 
-            // Production — from fp_telemetry
+            // Production — line + date range (telemetry doesn't support shiftName filter)
             try {
                 var resp = telemetryClient.getProductionByLine(lineId, fromDT, toDT, 10000, 0);
                 if (resp != null && resp.getData() != null && resp.getData().getContent() != null) {
                     List<ProductionCountResponse> list = resp.getData().getContent();
                     long totalGood = list.stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
                     long totalBad  = list.stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
-                    double quality = (totalGood + totalBad) > 0
-                            ? (double) totalGood / (totalGood + totalBad) * 100 : 0.0;
                     metrics.put("totalGood",   totalGood);
                     metrics.put("totalBad",    totalBad);
-                    metrics.put("qualityRate", Math.round(quality * 100.0) / 100.0);
+                    metrics.put("qualityRate", (totalGood + totalBad) > 0
+                            ? Math.round((double) totalGood / (totalGood + totalBad) * 10000.0) / 100.0 : 0.0);
                 }
             } catch (Exception e) {
-                log.warn("Could not fetch production data for report metrics: {}", e.getMessage());
+                log.warn("Production for LINE report: {}", e.getMessage());
             }
         }
 

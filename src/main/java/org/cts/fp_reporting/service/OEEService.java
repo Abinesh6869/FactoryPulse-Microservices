@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -64,8 +66,20 @@ public class OEEService {
                 String to   = shiftDate.atTime(shift.getEndTime()).toString();
                 ServiceApiResponse<List<DowntimeEventResponse>> dr = eventsClient.getDowntimesByLine(lineId, from, to);
                 if (dr != null && dr.getData() != null) {
+                    LocalDateTime shiftEnd = shiftDate.atTime(shift.getEndTime());
                     totalDowntimeSec = dr.getData().stream()
-                            .mapToLong(d -> d.getDurationSec() != null ? d.getDurationSec() : 0L)
+                            .mapToLong(d -> {
+                                if (d.getDurationSec() != null) return d.getDurationSec();
+                                // open downtime (not yet closed) — estimate elapsed time
+                                if (d.getStartAt() != null) {
+                                    LocalDateTime capAt = shiftEnd;
+                                    LocalDateTime now   = LocalDateTime.now();
+                                    LocalDateTime end   = now.isBefore(capAt) ? now : capAt;
+                                    long secs = Duration.between(d.getStartAt(), end).getSeconds();
+                                    return Math.max(0L, secs);
+                                }
+                                return 0L;
+                            })
                             .sum();
                 }
             } catch (Exception e) { log.warn("Could not fetch downtimes: {}", e.getMessage()); }
@@ -129,6 +143,24 @@ public class OEEService {
 
     public Page<OEERecordResponse> getOEEByShift(Long shiftId, Pageable pageable) {
         return oeeRecordRepository.findByShiftId(shiftId, pageable).map(this::toResponse);
+    }
+
+    /** All OEE records for a shift NAME across a date range (aggregates across all shift instances). */
+    public List<OEERecordResponse> getOEEByShiftNameAndDateRange(String shiftName, LocalDate from, LocalDate to) {
+        return oeeRecordRepository.findByShiftNameAndDateBetweenOrderByDateDesc(shiftName, from, to)
+                .stream().map(this::toResponse).collect(java.util.stream.Collectors.toList());
+    }
+
+    /** OEE for a specific line, filtered by shift name and date range. */
+    public List<OEERecordResponse> getOEEByLineAndShiftNameAndDateRange(Long lineId, String shiftName, LocalDate from, LocalDate to) {
+        return oeeRecordRepository.findByLineIdAndShiftNameAndDateBetweenOrderByDateDesc(lineId, shiftName, from, to)
+                .stream().map(this::toResponse).collect(java.util.stream.Collectors.toList());
+    }
+
+    /** All OEE records across all lines for a date range. */
+    public List<OEERecordResponse> getAllOEEByDateRange(LocalDate from, LocalDate to) {
+        return oeeRecordRepository.findByDateBetween(from, to)
+                .stream().map(this::toResponse).collect(Collectors.toList());
     }
 
     public OEERecordResponse getLatestOEEByLine(Long lineId) {

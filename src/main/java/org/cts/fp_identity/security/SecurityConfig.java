@@ -53,10 +53,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,    "/api/machines/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "OPERATOR", "TECHNICIAN", "QUALITY_ENGINEER")
 
                 // SHIFTS
-                .requestMatchers(HttpMethod.POST,   "/api/shifts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.PUT,    "/api/shifts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/shifts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.GET,    "/api/shifts/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "OPERATOR", "QUALITY_ENGINEER")
+                .requestMatchers(HttpMethod.POST,   "/api/shifts", "/api/shifts/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT,    "/api/shifts", "/api/shifts/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/api/shifts", "/api/shifts/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET,    "/api/shifts", "/api/shifts/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "OPERATOR", "QUALITY_ENGINEER", "ANALYST")
 
                 // TELEMETRY POINTS
                 .requestMatchers(HttpMethod.POST,   "/api/telemetry-points/**").hasRole("ADMIN")

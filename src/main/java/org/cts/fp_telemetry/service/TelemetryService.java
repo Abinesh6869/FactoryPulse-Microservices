@@ -109,6 +109,11 @@ public class TelemetryService {
                 .map(this::toCountResponse);
     }
 
+    public ProductionCountResponse getProductionCountById(Long countId) {
+        return toCountResponse(productionCountRepository.findById(countId)
+                .orElseThrow(() -> new ResourceNotFoundException("ProductionCount not found with id: " + countId)));
+    }
+
     public ProductionCountResponse updateProductionCount(Long countId, Integer goodCount, Integer rejectCount) {
         ProductionCount productionCount = productionCountRepository.findById(countId)
                 .orElseThrow(() -> new ResourceNotFoundException("ProductionCount not found with id: " + countId));

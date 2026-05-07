@@ -68,6 +68,13 @@ public class TelemetryController {
         return ResponseEntity.ok(ApiResponse.success("Please provide lineId or shiftId", null));
     }
 
+    @GetMapping("/production/{countId}")
+    public ResponseEntity<ApiResponse<ProductionCountResponse>> getProductionCountById(
+            @PathVariable Long countId) {
+        return ResponseEntity.ok(ApiResponse.success("Production count fetched successfully",
+                telemetryService.getProductionCountById(countId)));
+    }
+
     @PatchMapping("/production/updateCount/{countId}")
     public ResponseEntity<ApiResponse<ProductionCountResponse>> updateProductionCount(
             @PathVariable Long countId,

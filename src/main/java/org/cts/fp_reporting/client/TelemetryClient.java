@@ -11,6 +11,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 @FeignClient(name = "fp-telemetry", fallback = TelemetryClientFallback.class)
 public interface TelemetryClient {
 
+    // GET /api/telemetry/production/{id}
+    @GetMapping("/api/telemetry/production/{countId}")
+    ServiceApiResponse<ProductionCountResponse> getProductionCountById(
+            @org.springframework.web.bind.annotation.PathVariable Long countId);
+
     // GET /api/telemetry/production?lineId=X&from=Y&to=Z&size=N&page=0
     @GetMapping("/api/telemetry/production")
     ServiceApiResponse<ServicePageResponse<ProductionCountResponse>> getProductionByLine(

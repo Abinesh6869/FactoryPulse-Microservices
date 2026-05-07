@@ -25,7 +25,7 @@ public class KPIController {
 
     @PostMapping("/calculate")
     public ResponseEntity<ApiResponse<Void>> triggerKpiCalculation() {
-        kpiWorker.calculateMonthlyKPIs();
+        kpiWorker.calculateCurrentMonthKPIs();
         return ResponseEntity.ok(ApiResponse.success("KPI calculation triggered for current month", null));
     }
 

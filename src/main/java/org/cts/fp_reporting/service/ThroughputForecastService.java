@@ -35,10 +35,27 @@ public class ThroughputForecastService {
         if (request.getPeriodStart().isAfter(request.getPeriodEnd())) {
             throw new BadRequestException("Period end should be greater than period start");
         }
+
+        // Auto-populate lineName / plantName from identity service if not provided
+        String lineName  = request.getLineName();
+        String plantName = request.getPlantName();
+        if (lineName == null || lineName.isBlank()) {
+            try {
+                var resp = identityClient.getLineById(request.getLineId());
+                if (resp != null && resp.getData() != null) {
+                    lineName  = resp.getData().getName();
+                    if (plantName == null || plantName.isBlank())
+                        plantName = resp.getData().getPlantName() != null ? resp.getData().getPlantName() : "";
+                }
+            } catch (Exception e) {
+                log.warn("Could not fetch line info for forecast: {}", e.getMessage());
+            }
+        }
+
         ThroughputForecast forecast = new ThroughputForecast();
         forecast.setLineId(request.getLineId());
-        forecast.setLineName(request.getLineName());
-        forecast.setPlantName(request.getPlantName());
+        forecast.setLineName(lineName);
+        forecast.setPlantName(plantName != null ? plantName : "");
         forecast.setPeriodStart(request.getPeriodStart());
         forecast.setPeriodEnd(request.getPeriodEnd());
         forecast.setExpectedUnits(request.getExpectedUnits());

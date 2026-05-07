@@ -13,4 +13,5 @@ public class KPIResponse {
     private Double currentValue;
     private String reportingPeriod;
     private String status;
+    private Boolean lowerIsBetter;
 }

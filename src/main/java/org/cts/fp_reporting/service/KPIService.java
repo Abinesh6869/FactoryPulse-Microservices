@@ -65,13 +65,25 @@ public class KPIService {
                 .orElseThrow(() -> new ResourceNotFoundException("KPI not found with ID " + id)));
     }
 
+    private static final java.util.Set<String> LOWER_IS_BETTER = java.util.Set.of(
+            "MTTR", "Total Downtime Hours");
+
     private KPIResponse toKPIResponse(Kpi k) {
         String status = "ON_TRACK";
         if (k.getCurrentValue() != null && k.getTarget() != null) {
-            double pct = k.getCurrentValue() / k.getTarget();
-            if (pct < 0.7) status = "BELOW_TARGET";
-            else if (pct < 0.9) status = "AT_RISK";
+            if (LOWER_IS_BETTER.contains(k.getName())) {
+                // target is the MAX allowed — being close to it is already a warning
+                double pct = k.getCurrentValue() / k.getTarget();
+                if (pct > 1.0) status = "ABOVE_TARGET"; // exceeded limit → red
+                else if (pct > 0.8) status = "AT_RISK";  // 80–100% of limit → yellow
+                // else < 80% of limit → ON_TRACK (green)
+            } else {
+                double pct = k.getCurrentValue() / k.getTarget();
+                if (pct < 0.7) status = "BELOW_TARGET";
+                else if (pct < 0.9) status = "AT_RISK";
+            }
         }
+        boolean lib = LOWER_IS_BETTER.contains(k.getName());
         return KPIResponse.builder()
                 .kpiId(k.getKpiId())
                 .name(k.getName())
@@ -80,6 +92,7 @@ public class KPIService {
                 .currentValue(k.getCurrentValue())
                 .reportingPeriod(k.getReportingPeriod())
                 .status(status)
+                .lowerIsBetter(lib)
                 .build();
     }
 }

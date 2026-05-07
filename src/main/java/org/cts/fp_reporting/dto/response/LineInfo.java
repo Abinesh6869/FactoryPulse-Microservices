@@ -11,4 +11,5 @@ public class LineInfo {
     private Long lineId;
     private String name;
     private Long plantId;
+    private String plantName;
 }

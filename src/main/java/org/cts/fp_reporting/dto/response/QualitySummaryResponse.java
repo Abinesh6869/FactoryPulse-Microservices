@@ -11,4 +11,5 @@ public class QualitySummaryResponse {
     private Long lineId;
     private String lineName;
     private List<QualityCorrelationResponse> qualityRecords;
+    private List<ProductionCountResponse> productionCounts;
 }

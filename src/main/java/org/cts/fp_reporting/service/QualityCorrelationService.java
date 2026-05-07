@@ -3,7 +3,11 @@ package org.cts.fp_reporting.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cts.fp_reporting.client.IdentityClient;
+import org.cts.fp_reporting.client.TelemetryClient;
 import org.cts.fp_reporting.dto.request.AuditLogRequest;
+import org.cts.fp_reporting.dto.response.ProductionCountResponse;
+import org.cts.fp_reporting.dto.response.ServiceApiResponse;
+import org.cts.fp_reporting.dto.response.ServicePageResponse;
 import org.cts.fp_reporting.dto.request.QualityCorrelationRequest;
 import org.cts.fp_reporting.dto.response.QualityCorrelationResponse;
 import org.cts.fp_reporting.dto.response.QualitySummaryResponse;
@@ -27,15 +31,38 @@ public class QualityCorrelationService {
 
     private final QualityCorrelationRepository qualityCorrelationRepository;
     private final IdentityClient identityClient;
+    private final TelemetryClient telemetryClient;
 
     public QualitySummaryResponse getSummaryByLine(Long lineId, LocalDateTime from, LocalDateTime to) {
         List<QualityCorrelationResponse> records = qualityCorrelationRepository
                 .findByLineIdAndCreatedAtBetween(lineId, from, to)
                 .stream().map(this::toResponse).toList();
+
+        // Fetch actual production counts from fp_telemetry for the line+date range
+        // (matches monolith which reads from local ProductionCountRepository)
+        List<ProductionCountResponse> productionCounts = java.util.Collections.emptyList();
+        String lineName = records.isEmpty() ? "" : records.get(0).getLineName();
+        try {
+            ServiceApiResponse<ServicePageResponse<ProductionCountResponse>> pcResp =
+                    telemetryClient.getProductionByLine(lineId,
+                            from.format(java.time.format.DateTimeFormatter.ISO_DATE_TIME),
+                            to.format(java.time.format.DateTimeFormatter.ISO_DATE_TIME),
+                            10000, 0);
+            if (pcResp != null && pcResp.getData() != null && pcResp.getData().getContent() != null) {
+                productionCounts = pcResp.getData().getContent();
+                if (lineName.isBlank() && !productionCounts.isEmpty())
+                    lineName = productionCounts.get(0).getLineName() != null
+                            ? productionCounts.get(0).getLineName() : lineName;
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch production counts for lineId={}: {}", lineId, e.getMessage());
+        }
+
         return QualitySummaryResponse.builder()
                 .lineId(lineId)
-                .lineName(records.isEmpty() ? "" : records.get(0).getLineName())
+                .lineName(lineName)
                 .qualityRecords(records)
+                .productionCounts(productionCounts)
                 .build();
     }
 
@@ -43,13 +70,34 @@ public class QualityCorrelationService {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
 
+        // Resolve production count details from fp_telemetry (matches monolith behaviour)
+        Long lineId = null;
+        String lineName = null;
+        Integer goodCount = null;
+        Integer rejectCount = null;
+        java.time.LocalDateTime productionTimestamp = null;
+        try {
+            ServiceApiResponse<ProductionCountResponse> pcResp =
+                    telemetryClient.getProductionCountById(request.getProductionCountId());
+            if (pcResp != null && pcResp.getData() != null) {
+                ProductionCountResponse pc = pcResp.getData();
+                lineId              = pc.getLineId();
+                lineName            = pc.getLineName();
+                goodCount           = pc.getGoodCount();
+                rejectCount         = pc.getRejectCount();
+                productionTimestamp = pc.getTimestamp();
+            }
+        } catch (Exception e) {
+            log.warn("Could not resolve production count details for id={}: {}", request.getProductionCountId(), e.getMessage());
+        }
+
         QualityCorrelation record = new QualityCorrelation();
-        record.setLineId(request.getLineId());
-        record.setLineName(request.getLineName());
+        record.setLineId(lineId);
+        record.setLineName(lineName);
         record.setProductionCountId(request.getProductionCountId());
-        record.setGoodCount(request.getGoodCount());
-        record.setRejectCount(request.getRejectCount());
-        record.setProductionTimestamp(request.getProductionTimestamp());
+        record.setGoodCount(goodCount);
+        record.setRejectCount(rejectCount);
+        record.setProductionTimestamp(productionTimestamp);
         record.setDowntimeEventId(request.getDowntimeEventId());
         record.setTelemetryEventId(request.getTelemetryEventId());
         record.setReviewedById(principal.getUserId());
@@ -60,7 +108,7 @@ public class QualityCorrelationService {
         QualityCorrelationResponse response = toResponse(qualityCorrelationRepository.save(record));
         try {
             identityClient.recordAuditLog(new AuditLogRequest("CREATE_QUALITY_RECORD", "QualityCorrelation",
-                    "Created quality record ID: " + response.getQualityRecordId() + " for line: " + request.getLineId()));
+                    "Created quality record ID: " + response.getQualityRecordId() + " for productionCountId: " + request.getProductionCountId()));
         } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return response;
     }
@@ -85,12 +133,7 @@ public class QualityCorrelationService {
         QualityCorrelation record = qualityCorrelationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Quality record not found with id: " + id));
 
-        if (request.getLineId() != null)             record.setLineId(request.getLineId());
-        if (request.getLineName() != null)           record.setLineName(request.getLineName());
         if (request.getProductionCountId() != null)  record.setProductionCountId(request.getProductionCountId());
-        if (request.getGoodCount() != null)          record.setGoodCount(request.getGoodCount());
-        if (request.getRejectCount() != null)        record.setRejectCount(request.getRejectCount());
-        if (request.getProductionTimestamp() != null) record.setProductionTimestamp(request.getProductionTimestamp());
         if (request.getDowntimeEventId() != null)    record.setDowntimeEventId(request.getDowntimeEventId());
         if (request.getTelemetryEventId() != null)   record.setTelemetryEventId(request.getTelemetryEventId());
         if (request.getNotes() != null)              record.setNotes(request.getNotes());

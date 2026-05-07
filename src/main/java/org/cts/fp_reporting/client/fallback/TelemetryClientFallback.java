@@ -29,6 +29,16 @@ public class TelemetryClientFallback implements TelemetryClient {
         return fallback();
     }
 
+    @Override
+    public ServiceApiResponse<ProductionCountResponse> getProductionCountById(Long countId) {
+        log.warn("FALLBACK: getProductionCountById(countId={}) — {}", countId, MSG);
+        ServiceApiResponse<ProductionCountResponse> resp = new ServiceApiResponse<>();
+        resp.setSuccess(false);
+        resp.setMessage(MSG);
+        resp.setData(null);
+        return resp;
+    }
+
     private ServiceApiResponse<ServicePageResponse<ProductionCountResponse>> fallback() {
         ServicePageResponse<ProductionCountResponse> emptyPage = new ServicePageResponse<>();
         emptyPage.setContent(Collections.emptyList());

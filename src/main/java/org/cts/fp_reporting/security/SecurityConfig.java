@@ -31,16 +31,16 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/reports/**").hasAnyRole("ADMIN", "MANAGER", "QUALITY_ENGINEER", "ANALYST")
                 .requestMatchers(HttpMethod.GET,  "/api/reports/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST")
                 // OEE
-                .requestMatchers(HttpMethod.POST,  "/api/oee/**").hasAnyRole("ADMIN", "MANAGER")
-                .requestMatchers(HttpMethod.GET,   "/api/oee/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
+                .requestMatchers(HttpMethod.POST,  "/api/oee", "/api/oee/**").hasAnyRole("ADMIN", "MANAGER", "ANALYST")
+                .requestMatchers(HttpMethod.GET,   "/api/oee", "/api/oee/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
                 // KPI
                 .requestMatchers(HttpMethod.POST,  "/api/kpis/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers(HttpMethod.PUT,   "/api/kpis/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers(HttpMethod.PATCH, "/api/kpis/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers(HttpMethod.GET,   "/api/kpis/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
                 // Throughput forecasts
-                .requestMatchers(HttpMethod.POST,  "/api/throughput-forecasts/**").hasAnyRole("ADMIN", "MANAGER", "ANALYST")
-                .requestMatchers(HttpMethod.GET,   "/api/throughput-forecasts/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
+                .requestMatchers(HttpMethod.POST,  "/api/throughput-forecasts", "/api/throughput-forecasts/**").hasAnyRole("ADMIN", "MANAGER", "ANALYST")
+                .requestMatchers(HttpMethod.GET,   "/api/throughput-forecasts", "/api/throughput-forecasts/**").hasAnyRole("ADMIN", "MANAGER", "SUPERVISOR", "QUALITY_ENGINEER", "ANALYST", "OPERATOR")
                 // Quality correlation
                 .requestMatchers(HttpMethod.POST,  "/api/quality-correlation/**").hasAnyRole("ADMIN", "MANAGER", "QUALITY_ENGINEER", "ANALYST")
                 .requestMatchers(HttpMethod.PATCH, "/api/quality-correlation/**").hasAnyRole("ADMIN", "MANAGER", "QUALITY_ENGINEER", "ANALYST")

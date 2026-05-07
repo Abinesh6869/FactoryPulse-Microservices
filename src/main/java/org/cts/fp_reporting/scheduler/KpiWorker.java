@@ -42,11 +42,22 @@ public class KpiWorker {
 
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_DATE_TIME;
 
-    @Scheduled(cron = "0 5 0 1 * *")   // 00:05 on 1st of every month
+    /** Called by the manual "Recalculate All" button — uses current month so in-progress data is visible */
+    public void calculateCurrentMonthKPIs() {
+        LocalDate today = LocalDate.now();
+        doCalculate(today.withDayOfMonth(1), today);
+    }
+
+    /** Scheduled: runs at 00:05 on the 1st — finalises the previous month */
+    @Scheduled(cron = "0 5 0 1 * *")
     public void calculateMonthlyKPIs() {
         LocalDate today      = LocalDate.now();
         LocalDate monthStart = today.minusMonths(1).withDayOfMonth(1);
         LocalDate monthEnd   = today.withDayOfMonth(1).minusDays(1);
+        doCalculate(monthStart, monthEnd);
+    }
+
+    private void doCalculate(LocalDate monthStart, LocalDate monthEnd) {
 
         String fromStr = monthStart.atStartOfDay().format(ISO);
         String toStr   = monthEnd.atTime(23, 59, 59).format(ISO);
@@ -76,12 +87,15 @@ public class KpiWorker {
                     eventsClient.getAllDowntimesByDateRange(fromStr, toStr);
             if (dtResp != null && dtResp.getData() != null) {
                 List<DowntimeEventResponse> dtList = dtResp.getData();
-                long totalSec = dtList.stream()
-                        .mapToLong(d -> d.getDurationSec() != null ? d.getDurationSec() : 0L).sum();
-                int  count    = dtList.size();
+                // Only closed events (durationSec != null) contribute to MTTR
+                List<DowntimeEventResponse> closed = dtList.stream()
+                        .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                        .collect(java.util.stream.Collectors.toList());
+                long totalSec  = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                int  closedCnt = closed.size();
                 totalDowntimeHours = Math.round(totalSec / 3600.0 * 100.0) / 100.0;
-                mttrMinutes        = count > 0
-                        ? Math.round(totalSec / 60.0 / count * 100.0) / 100.0 : 0.0;
+                mttrMinutes        = closedCnt > 0
+                        ? Math.round(totalSec / 60.0 / closedCnt * 100.0) / 100.0 : 0.0;
             }
         } catch (Exception e) {
             log.warn("KpiWorker: downtime fetch failed — {}", e.getMessage());

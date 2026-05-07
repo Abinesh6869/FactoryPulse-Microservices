@@ -11,10 +11,8 @@ public class ThroughputForecastRequest {
     @NotNull(message = "Line Id is required")
     private Long lineId;
 
-    @NotBlank(message = "Line name is required")
+    // auto-populated from identity service if not provided
     private String lineName;
-
-    @NotBlank(message = "Plant name is required")
     private String plantName;
 
     @NotNull(message = "Period start is required")

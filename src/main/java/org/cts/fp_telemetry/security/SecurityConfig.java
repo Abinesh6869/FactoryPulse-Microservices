@@ -26,7 +26,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 // Manual telemetry/production submissions — plant-floor roles only
                 .requestMatchers(HttpMethod.POST,  "/api/telemetry/**").hasAnyRole("OPERATOR", "SUPERVISOR", "ADMIN")
                 // Update production counts — ADMIN and OPERATOR only (matches monolith)

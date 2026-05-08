@@ -2,10 +2,9 @@ package org.cts.fp_reporting.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.cts.fp_reporting.client.IdentityClient;
-import org.cts.fp_reporting.client.TelemetryClient;
 import org.cts.fp_reporting.dto.request.OEERecordRequest;
 import org.cts.fp_reporting.dto.response.*;
+import org.cts.fp_reporting.service.ExternalCallService;
 import org.cts.fp_reporting.service.OEEService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -20,8 +19,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OEEScheduler {
 
-    private final IdentityClient identityClient;
-    private final TelemetryClient telemetryClient;
+    private final ExternalCallService externalCallService;
     private final OEEService oeeService;
 
     @Scheduled(fixedDelayString = "${oee.auto-calculate-interval-ms:60000}")
@@ -30,10 +28,10 @@ public class OEEScheduler {
             LocalTime now  = LocalTime.now();
             String today   = LocalDate.now().toString();
 
-            ServiceApiResponse<List<ShiftInfo>> shiftResp = identityClient.getShiftsByDate(today);
-            if (shiftResp == null || shiftResp.getData() == null) return;
+            List<ShiftInfo> shifts = externalCallService.fetchShiftsByDate(today);
+            if (shifts.isEmpty()) return;
 
-            List<ShiftInfo> activeShifts = shiftResp.getData().stream()
+            List<ShiftInfo> activeShifts = shifts.stream()
                     .filter(s -> s.getStartTime() != null && s.getEndTime() != null
                             && !now.isBefore(s.getStartTime())
                             && !now.isAfter(s.getEndTime()))
@@ -41,9 +39,8 @@ public class OEEScheduler {
 
             if (activeShifts.isEmpty()) return;
 
-            ServiceApiResponse<List<LineInfo>> lineResp = identityClient.getAllLines();
-            if (lineResp == null || lineResp.getData() == null) return;
-            List<LineInfo> allLines = lineResp.getData();
+            List<LineInfo> allLines = externalCallService.fetchAllLines();
+            if (allLines.isEmpty()) return;
 
             for (ShiftInfo shift : activeShifts) {
                 List<LineInfo> shiftLines = allLines.stream()
@@ -66,14 +63,11 @@ public class OEEScheduler {
     private void calculateOEEFor(LineInfo line, ShiftInfo shift) {
         long totalGood = 0, totalReject = 0;
         try {
-            ServiceApiResponse<ServicePageResponse<ProductionCountResponse>> prodResp =
-                    telemetryClient.getProductionByShift(shift.getShiftId(), 2000, 0);
-            if (prodResp != null && prodResp.getData() != null && prodResp.getData().getContent() != null) {
-                for (ProductionCountResponse p : prodResp.getData().getContent()) {
-                    if (line.getLineId().equals(p.getLineId())) {
-                        totalGood   += p.getGoodCount()   != null ? p.getGoodCount()   : 0;
-                        totalReject += p.getRejectCount() != null ? p.getRejectCount() : 0;
-                    }
+            List<ProductionCountResponse> prod = externalCallService.fetchProductionByShift(shift.getShiftId());
+            for (ProductionCountResponse p : prod) {
+                if (line.getLineId().equals(p.getLineId())) {
+                    totalGood   += p.getGoodCount()   != null ? p.getGoodCount()   : 0;
+                    totalReject += p.getRejectCount() != null ? p.getRejectCount() : 0;
                 }
             }
         } catch (Exception e) {

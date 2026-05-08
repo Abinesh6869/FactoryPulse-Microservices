@@ -4,9 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.cts.fp_reporting.client.EventsClient;
-import org.cts.fp_reporting.client.IdentityClient;
-import org.cts.fp_reporting.client.TelemetryClient;
 import org.cts.fp_reporting.dto.request.AuditLogRequest;
 import org.cts.fp_reporting.dto.request.ReportRequest;
 import org.cts.fp_reporting.dto.response.*;
@@ -33,10 +30,8 @@ public class ReportService {
 
     private final ReportRepository reportRepository;
     private final ObjectMapper objectMapper;
-    private final IdentityClient identityClient;
-    private final EventsClient eventsClient;
-    private final TelemetryClient telemetryClient;
-    private final OEEService oeeService;   // direct call — analytics is now in-process
+    private final OEEService oeeService;
+    private final ExternalCallService externalCallService;
 
     public ReportResponse generateReport(ReportRequest request,
                                          Long userId,
@@ -64,7 +59,7 @@ public class ReportService {
 
         Report saved = reportRepository.save(report);
         try {
-            identityClient.recordAuditLog(new AuditLogRequest("GENERATE_REPORT", "Report",
+            externalCallService.recordAuditLog(new AuditLogRequest("GENERATE_REPORT", "Report",
                     "Generated report ID: " + saved.getReportId() + ", scope: " + report.getScope()));
         } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toReportResponse(saved);
@@ -118,13 +113,9 @@ public class ReportService {
                 if (!lineIds.isEmpty()) {
                     long totalGood = 0, totalBad = 0;
                     for (Long lid : lineIds) {
-                        try {
-                            var pr = telemetryClient.getProductionByLine(lid, fromDT, toDT, 10000, 0);
-                            if (pr != null && pr.getData() != null && pr.getData().getContent() != null) {
-                                totalGood += pr.getData().getContent().stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
-                                totalBad  += pr.getData().getContent().stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
-                            }
-                        } catch (Exception ex) { log.warn("Production fetch for line {}: {}", lid, ex.getMessage()); }
+                        List<ProductionCountResponse> prod = externalCallService.fetchProduction(lid, fromDT, toDT);
+                        totalGood += prod.stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
+                        totalBad  += prod.stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
                     }
                     if (totalGood + totalBad > 0) {
                         metrics.put("totalGood",   totalGood);
@@ -138,18 +129,15 @@ public class ReportService {
 
             // Downtime — date range only (no shift FK on DowntimeEvent)
             try {
-                var dtResp = eventsClient.getAllDowntimesByDateRange(fromDT, toDT);
-                if (dtResp != null && dtResp.getData() != null) {
-                    List<DowntimeEventResponse> list = dtResp.getData();
-                    List<DowntimeEventResponse> closed = list.stream()
-                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
-                            .collect(Collectors.toList());
-                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
-                    metrics.put("downtimeEventCount", list.size());
-                    metrics.put("totalDowntimeSec",   totalDowntimeSec);
-                    metrics.put("mttrMinutes", !closed.isEmpty()
-                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
-                }
+                List<DowntimeEventResponse> list = externalCallService.fetchDowntimes(fromDT, toDT);
+                List<DowntimeEventResponse> closed = list.stream()
+                        .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                        .collect(Collectors.toList());
+                long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                metrics.put("downtimeEventCount", list.size());
+                metrics.put("totalDowntimeSec",   totalDowntimeSec);
+                metrics.put("mttrMinutes", !closed.isEmpty()
+                        ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
             } catch (Exception e) {
                 log.warn("Downtime for SHIFT report: {}", e.getMessage());
             }
@@ -159,9 +147,8 @@ public class ReportService {
         else if ("LINE".equalsIgnoreCase(scope) && !parameters.containsKey("lineId")) {
 
             // OEE — all lines across date range; also derive line IDs for production
-            List<OEERecordResponse> allOeeList = new java.util.ArrayList<>();
             try {
-                allOeeList = oeeService.getAllOEEByDateRange(from, to);
+                List<OEERecordResponse> allOeeList = oeeService.getAllOEEByDateRange(from, to);
                 metrics.put("shiftRecords", allOeeList.size());
                 if (!allOeeList.isEmpty()) {
                     double avgOEE = allOeeList.stream()
@@ -170,7 +157,7 @@ public class ReportService {
                     metrics.put("avgOEE", Math.round(avgOEE * 100.0) / 100.0);
                 }
 
-                // Production — derive line IDs from OEE records, fetch per line
+                // Production — derive line IDs from OEE records, fetch per line via CB
                 List<Long> lineIds = allOeeList.stream()
                         .map(OEERecordResponse::getLineId)
                         .filter(java.util.Objects::nonNull)
@@ -179,13 +166,9 @@ public class ReportService {
                 if (!lineIds.isEmpty()) {
                     long totalGood = 0, totalBad = 0;
                     for (Long lid : lineIds) {
-                        try {
-                            var pr = telemetryClient.getProductionByLine(lid, fromDT, toDT, 10000, 0);
-                            if (pr != null && pr.getData() != null && pr.getData().getContent() != null) {
-                                totalGood += pr.getData().getContent().stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
-                                totalBad  += pr.getData().getContent().stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
-                            }
-                        } catch (Exception ex) { log.warn("Production fetch for line {}: {}", lid, ex.getMessage()); }
+                        List<ProductionCountResponse> prod = externalCallService.fetchProduction(lid, fromDT, toDT);
+                        totalGood += prod.stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
+                        totalBad  += prod.stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
                     }
                     if (totalGood + totalBad > 0) {
                         metrics.put("totalGood",   totalGood);
@@ -199,18 +182,15 @@ public class ReportService {
 
             // Downtime — all lines, date range
             try {
-                var dtResp = eventsClient.getAllDowntimesByDateRange(fromDT, toDT);
-                if (dtResp != null && dtResp.getData() != null) {
-                    List<DowntimeEventResponse> list = dtResp.getData();
-                    List<DowntimeEventResponse> closed = list.stream()
-                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
-                            .collect(Collectors.toList());
-                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
-                    metrics.put("downtimeEventCount", list.size());
-                    metrics.put("totalDowntimeSec",   totalDowntimeSec);
-                    metrics.put("mttrMinutes", !closed.isEmpty()
-                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
-                }
+                List<DowntimeEventResponse> list = externalCallService.fetchDowntimes(fromDT, toDT);
+                List<DowntimeEventResponse> closed = list.stream()
+                        .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                        .collect(Collectors.toList());
+                long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                metrics.put("downtimeEventCount", list.size());
+                metrics.put("totalDowntimeSec",   totalDowntimeSec);
+                metrics.put("mttrMinutes", !closed.isEmpty()
+                        ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
             } catch (Exception e) {
                 log.warn("Downtime for ALL scope: {}", e.getMessage());
             }
@@ -238,36 +218,30 @@ public class ReportService {
                 log.warn("OEE for LINE report: {}", e.getMessage());
             }
 
-            // Downtime — line + date range (DowntimeEvent has no shift FK)
+            // Downtime — line + date range via CB
             try {
-                var resp = eventsClient.getDowntimesByLine(lineId, fromDT, toDT);
-                if (resp != null && resp.getData() != null) {
-                    List<DowntimeEventResponse> list = resp.getData();
-                    List<DowntimeEventResponse> closed = list.stream()
-                            .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
-                            .collect(Collectors.toList());
-                    long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
-                    metrics.put("downtimeEventCount", list.size());
-                    metrics.put("totalDowntimeSec",   totalDowntimeSec);
-                    metrics.put("mttrMinutes", !closed.isEmpty()
-                            ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
-                }
+                List<DowntimeEventResponse> list = externalCallService.fetchDowntimesByLine(lineId, fromDT, toDT);
+                List<DowntimeEventResponse> closed = list.stream()
+                        .filter(d -> d.getDurationSec() != null && d.getDurationSec() > 0)
+                        .collect(Collectors.toList());
+                long totalDowntimeSec = closed.stream().mapToLong(DowntimeEventResponse::getDurationSec).sum();
+                metrics.put("downtimeEventCount", list.size());
+                metrics.put("totalDowntimeSec",   totalDowntimeSec);
+                metrics.put("mttrMinutes", !closed.isEmpty()
+                        ? Math.round(totalDowntimeSec / 60.0 / closed.size() * 100.0) / 100.0 : 0.0);
             } catch (Exception e) {
                 log.warn("Downtime for LINE report: {}", e.getMessage());
             }
 
-            // Production — line + date range (telemetry doesn't support shiftName filter)
+            // Production — line + date range via CB
             try {
-                var resp = telemetryClient.getProductionByLine(lineId, fromDT, toDT, 10000, 0);
-                if (resp != null && resp.getData() != null && resp.getData().getContent() != null) {
-                    List<ProductionCountResponse> list = resp.getData().getContent();
-                    long totalGood = list.stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
-                    long totalBad  = list.stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
-                    metrics.put("totalGood",   totalGood);
-                    metrics.put("totalBad",    totalBad);
-                    metrics.put("qualityRate", (totalGood + totalBad) > 0
-                            ? Math.round((double) totalGood / (totalGood + totalBad) * 10000.0) / 100.0 : 0.0);
-                }
+                List<ProductionCountResponse> list = externalCallService.fetchProduction(lineId, fromDT, toDT);
+                long totalGood = list.stream().mapToLong(p -> p.getGoodCount()   != null ? p.getGoodCount()   : 0).sum();
+                long totalBad  = list.stream().mapToLong(p -> p.getRejectCount() != null ? p.getRejectCount() : 0).sum();
+                metrics.put("totalGood",   totalGood);
+                metrics.put("totalBad",    totalBad);
+                metrics.put("qualityRate", (totalGood + totalBad) > 0
+                        ? Math.round((double) totalGood / (totalGood + totalBad) * 10000.0) / 100.0 : 0.0);
             } catch (Exception e) {
                 log.warn("Production for LINE report: {}", e.getMessage());
             }

@@ -26,7 +26,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 // Downtime: OPERATOR, SUPERVISOR, ADMIN can create
                 .requestMatchers(HttpMethod.POST, "/api/downtimes/**").hasAnyRole("OPERATOR", "SUPERVISOR", "ADMIN")
                 // Corrective action complete: TECHNICIAN, SUPERVISOR, ADMIN (specific rule BEFORE general PATCH)

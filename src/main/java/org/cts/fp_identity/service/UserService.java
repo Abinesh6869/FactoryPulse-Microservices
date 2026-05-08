@@ -37,6 +37,8 @@ public class UserService {
     public UserResponse createUser(UserRequest request) {
         if (userRepository.existsByEmail(request.getEmail()))
             throw new BadRequestException("Email already in use: " + request.getEmail());
+        if (userRepository.existsByPhone(request.getPhone()))
+            throw new BadRequestException("Phone already in use: " + request.getPhone());
         User user = new User();
         user.setUserName(request.getName());
         user.setEmployeeId(generateEmployeeId(request.getRole()));
@@ -73,6 +75,9 @@ public class UserService {
         userRepository.findByEmail(request.getEmail())
                 .filter(e -> !e.getUserId().equals(id))
                 .ifPresent(e -> { throw new BadRequestException("Email already in use: " + request.getEmail()); });
+        userRepository.findByPhone(request.getPhone())
+                .filter(p -> !p.getUserId().equals(id))
+                .ifPresent(p -> { throw new BadRequestException("Phone already in use: " + request.getPhone()); });
         user.setUserName(request.getName());
         user.setEmail(request.getEmail());
         user.setPhone(request.getPhone());
@@ -136,6 +141,9 @@ public class UserService {
                     }
                     if (userRepository.existsByEmail(email)) {
                         skipped.add(new BulkUserResult.SkippedRow(rowNum, email, "Email already exists")); continue;
+                    }
+                    if (userRepository.existsByPhone(phone)) {
+                        skipped.add(new BulkUserResult.SkippedRow(rowNum, email, "Phone already exists")); continue;
                     }
                     UserRequest req = new UserRequest();
                     req.setName(name); req.setEmail(email); req.setPhone(phone);

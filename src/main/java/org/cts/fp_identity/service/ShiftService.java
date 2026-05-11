@@ -116,6 +116,13 @@ public class ShiftService {
                         continue;
                     }
 
+                    // Strip Excel formula wrapper: ="2026-05-12" or ="2026-05-12" → 2026-05-12
+                    if (dateStr.startsWith("=\"") && dateStr.endsWith("\"")) {
+                        dateStr = dateStr.substring(2, dateStr.length() - 1);
+                    } else if (dateStr.startsWith("=")) {
+                        dateStr = dateStr.substring(1);
+                    }
+
                     LocalDate date;
                     LocalTime startTime, endTime;
                     long plantId;

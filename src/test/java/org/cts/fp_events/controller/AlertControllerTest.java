@@ -6,15 +6,17 @@ import org.cts.fp_events.dto.response.AlertResponse;
 import org.cts.fp_events.dto.response.NotificationResponse;
 import org.cts.fp_events.exception.ResourceNotFoundException;
 import org.cts.fp_events.security.JwtUtil;
+import org.cts.fp_events.security.SecurityConfig;
 import org.cts.fp_events.service.AlertService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
@@ -26,6 +28,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AlertController.class)
+@Import(SecurityConfig.class)
 class AlertControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -165,7 +168,7 @@ class AlertControllerTest {
                 .andExpect(jsonPath("$.message").value("Notification created"));
     }
 
-    // ── No token → 403 ───────────────────────────────────────────────────────
+    // ── No token → 403 / 401 ─────────────────────────────────────────────────
 
     @Test
     void getAlerts_noToken_returns403() throws Exception {

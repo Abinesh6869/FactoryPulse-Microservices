@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,6 +40,7 @@ public class OEEService {
             ServiceApiResponse<ShiftInfo> sr = identityClient.getShiftById(shiftId);
             if (sr != null) shift = sr.getData();
         } catch (Exception e) { log.warn("Could not fetch shift {}: {}", shiftId, e.getMessage()); }
+        log.info("OEE calc — shiftId={}, shift={}", shiftId, shift != null ? shift.getName() + " date=" + shift.getDate() + " start=" + shift.getStartTime() + " end=" + shift.getEndTime() : "NULL");
 
         // 2. Fetch line info from fp_identity
         LineInfo line = null;
@@ -46,27 +48,38 @@ public class OEEService {
             ServiceApiResponse<LineInfo> lr = identityClient.getLineById(lineId);
             if (lr != null) line = lr.getData();
         } catch (Exception e) { log.warn("Could not fetch line {}: {}", lineId, e.getMessage()); }
+        log.info("OEE calc — lineId={}, line={}", lineId, line != null ? line.getName() : "NULL");
 
         // 3. Resolve names, date, planned seconds
         String lineName  = line  != null && line.getName()  != null ? line.getName()  : "Unknown Line";
         String shiftName = shift != null && shift.getName() != null ? shift.getName() : "Unknown Shift";
         LocalDate shiftDate = shift != null && shift.getDate() != null ? shift.getDate() : LocalDate.now();
 
+        // If shift crosses midnight (e.g. 22:00 → 06:00), end date is next day
+        boolean crossesMidnight = shift != null && shift.getStartTime() != null && shift.getEndTime() != null
+                && shift.getEndTime().isBefore(shift.getStartTime());
+        LocalDate shiftEndDate = crossesMidnight ? shiftDate.plusDays(1) : shiftDate;
+
         long plannedSec = 28800L; // default 8 hrs
         if (shift != null && shift.getStartTime() != null && shift.getEndTime() != null) {
-            long s = Duration.between(shift.getStartTime(), shift.getEndTime()).getSeconds();
+            LocalDateTime shiftStart = shiftDate.atTime(shift.getStartTime());
+            LocalDateTime shiftEnd   = shiftEndDate.atTime(shift.getEndTime());
+            long s = Duration.between(shiftStart, shiftEnd).getSeconds();
             if (s > 0) plannedSec = s;
         }
+        log.info("OEE calc — shiftDate={}, shiftEndDate={}, plannedSec={}, crossesMidnight={}", shiftDate, shiftEndDate, plannedSec, crossesMidnight);
 
         // 4. Downtime from fp_events
         long totalDowntimeSec = 0L;
         if (shift != null && shift.getStartTime() != null && shift.getEndTime() != null) {
             try {
-                String from = shiftDate.atTime(shift.getStartTime()).toString();
-                String to   = shiftDate.atTime(shift.getEndTime()).toString();
+                String from = shiftDate.atTime(shift.getStartTime()).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                String to   = shiftEndDate.atTime(shift.getEndTime()).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                log.info("OEE calc — fetching downtimes for lineId={} from={} to={}", lineId, from, to);
                 ServiceApiResponse<List<DowntimeEventResponse>> dr = eventsClient.getDowntimesByLine(lineId, from, to);
                 if (dr != null && dr.getData() != null) {
-                    LocalDateTime shiftEnd = shiftDate.atTime(shift.getEndTime());
+                    log.info("OEE calc — downtime events returned: {}", dr.getData().size());
+                    LocalDateTime shiftEnd = shiftEndDate.atTime(shift.getEndTime());
                     totalDowntimeSec = dr.getData().stream()
                             .mapToLong(d -> {
                                 if (d.getDurationSec() != null) return d.getDurationSec();
@@ -81,9 +94,17 @@ public class OEEService {
                                 return 0L;
                             })
                             .sum();
+                } else {
+                    log.info("OEE calc — no downtime data returned (null response)");
                 }
             } catch (Exception e) { log.warn("Could not fetch downtimes: {}", e.getMessage()); }
+        } else {
+            log.info("OEE calc — skipping downtime fetch: shift={} startTime={} endTime={}",
+                    shift != null ? "ok" : "NULL",
+                    shift != null ? shift.getStartTime() : "N/A",
+                    shift != null ? shift.getEndTime() : "N/A");
         }
+        log.info("OEE calc — totalDowntimeSec={}", totalDowntimeSec);
 
         // 5. Production counts from fp_telemetry
         long totalGood = 0L, totalReject = 0L;

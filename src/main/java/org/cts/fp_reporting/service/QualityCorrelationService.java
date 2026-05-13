@@ -68,6 +68,9 @@ public class QualityCorrelationService {
 
     public QualityCorrelationResponse createQualityRecord(QualityCorrelationRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal)) {
+            throw new org.cts.fp_reporting.exception.UnauthorizedException("User is not authenticated");
+        }
         UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
 
         // Resolve production count details from fp_telemetry (matches monolith behaviour)
@@ -123,6 +126,9 @@ public class QualityCorrelationService {
 
     public Page<QualityCorrelationResponse> getMyQualityRecords(Pageable pageable) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal)) {
+            throw new org.cts.fp_reporting.exception.UnauthorizedException("User is not authenticated");
+        }
         UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
         return qualityCorrelationRepository
                 .findByReviewedByIdOrderByCreatedAtDesc(principal.getUserId(), pageable)

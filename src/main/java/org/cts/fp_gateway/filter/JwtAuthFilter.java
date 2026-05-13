@@ -88,6 +88,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                 .retrieve()
                 .toBodilessEntity()
                 .map(response -> false)
+                .timeout(java.time.Duration.ofSeconds(3))
                 .onErrorResume(ex -> {
                     if (ex instanceof org.springframework.web.reactive.function.client.WebClientResponseException wcex
                             && wcex.getStatusCode() == HttpStatus.UNAUTHORIZED) {

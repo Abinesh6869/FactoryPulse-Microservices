@@ -3,6 +3,7 @@ package org.cts.fp_identity.service;
 import lombok.RequiredArgsConstructor;
 import org.cts.fp_identity.dto.request.TelemetryPointRequest;
 import org.cts.fp_identity.dto.response.TelemetryPointResponse;
+import org.cts.fp_identity.exception.BadRequestException;
 import org.cts.fp_identity.exception.ResourceNotFoundException;
 import org.cts.fp_identity.model.Machine;
 import org.cts.fp_identity.model.TelemetryPoint;
@@ -24,6 +25,13 @@ public class TelemetryPointService {
     public TelemetryPointResponse createPoint(TelemetryPointRequest request) {
         Machine machine = machineRepository.findById(request.getMachineId())
                 .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + request.getMachineId()));
+
+        if (telemetryPointRepository.existsByMachineMachineIdAndNameIgnoreCase(
+                request.getMachineId(), request.getName())) {
+            throw new BadRequestException("A telemetry point named '" + request.getName()
+                    + "' already exists on machine '" + machine.getName() + "'.");
+        }
+
         TelemetryPoint point = new TelemetryPoint();
         point.setMachine(machine);
         point.setName(request.getName());
@@ -62,6 +70,17 @@ public class TelemetryPointService {
                 .orElseThrow(() -> new ResourceNotFoundException("TelemetryPoint not found: " + id));
         Machine machine = machineRepository.findById(request.getMachineId())
                 .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + request.getMachineId()));
+
+        // Only check duplicates when name OR machine actually changes
+        boolean nameChanged    = !point.getName().equalsIgnoreCase(request.getName());
+        boolean machineChanged = !point.getMachine().getMachineId().equals(request.getMachineId());
+        if ((nameChanged || machineChanged) &&
+                telemetryPointRepository.existsByMachineMachineIdAndNameIgnoreCase(
+                        request.getMachineId(), request.getName())) {
+            throw new BadRequestException("A telemetry point named '" + request.getName()
+                    + "' already exists on machine '" + machine.getName() + "'.");
+        }
+
         point.setMachine(machine);
         point.setName(request.getName());
         point.setDataType(request.getDataType());

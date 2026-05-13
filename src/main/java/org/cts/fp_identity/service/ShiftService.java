@@ -40,6 +40,15 @@ public class ShiftService {
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Plant not found with id: " + request.getPlantId()));
 
+        if (!"ACTIVE".equalsIgnoreCase(plant.getStatus())) {
+            throw new BadRequestException("Cannot create shift for plant '" + plant.getName()
+                    + "' — plant is currently " + plant.getStatus() + ".");
+        }
+
+        if (request.getDate() != null && request.getDate().isBefore(java.time.LocalDate.now())) {
+            throw new BadRequestException("Cannot create a shift for a past date (" + request.getDate() + ").");
+        }
+
         if (shiftRepository.existsByPlantPlantIdAndDateAndName(request.getPlantId(), request.getDate(), request.getName())) {
             throw new BadRequestException("A '" + request.getName() + "' shift already exists for this plant on " + request.getDate());
         }
@@ -80,6 +89,10 @@ public class ShiftService {
                 .orElseThrow(() -> new ResourceNotFoundException("Shift not found: " + id));
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Plant not found: " + request.getPlantId()));
+        if (!"ACTIVE".equalsIgnoreCase(plant.getStatus())) {
+            throw new BadRequestException("Cannot assign shift to plant '" + plant.getName()
+                    + "' — plant is currently " + plant.getStatus() + ".");
+        }
         shift.setPlant(plant);
         shift.setName(request.getName());
         shift.setStartTime(request.getStartTime());
@@ -128,6 +141,9 @@ public class ShiftService {
                     long plantId;
                     try { date = LocalDate.parse(dateStr); }
                     catch (DateTimeParseException e) { failed.add(new BulkShiftResult.FailedRow(rowNum, name, "Invalid date format (use yyyy-MM-dd)")); continue; }
+                    if (date.isBefore(LocalDate.now())) {
+                        failed.add(new BulkShiftResult.FailedRow(rowNum, name, "Cannot create a shift for a past date (" + date + ")")); continue;
+                    }
                     try { startTime = LocalTime.parse(startTimeStr); }
                     catch (DateTimeParseException e) { failed.add(new BulkShiftResult.FailedRow(rowNum, name, "Invalid startTime format (use HH:mm:ss)")); continue; }
                     try { endTime = LocalTime.parse(endTimeStr); }
@@ -135,8 +151,13 @@ public class ShiftService {
                     try { plantId = Long.parseLong(plantIdStr); }
                     catch (NumberFormatException e) { failed.add(new BulkShiftResult.FailedRow(rowNum, name, "Invalid plantId — must be a number")); continue; }
 
-                    if (!plantRepository.existsById(plantId)) {
+                    Plant plant = plantRepository.findById(plantId).orElse(null);
+                    if (plant == null) {
                         failed.add(new BulkShiftResult.FailedRow(rowNum, name, "Plant not found with id: " + plantId)); continue;
+                    }
+                    if (!"ACTIVE".equalsIgnoreCase(plant.getStatus())) {
+                        failed.add(new BulkShiftResult.FailedRow(rowNum, name,
+                                "Plant '" + plant.getName() + "' is " + plant.getStatus() + " — cannot create shift")); continue;
                     }
                     if (shiftRepository.existsByPlantPlantIdAndDateAndName(plantId, date, name)) {
                         skipped.add(new BulkShiftResult.SkippedRow(rowNum, name, "Shift '" + name + "' already exists on " + date)); continue;

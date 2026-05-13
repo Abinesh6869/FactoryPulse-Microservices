@@ -19,4 +19,6 @@ public class MachineResponse {
     private String serialNumber;
     private LocalDate installDate;
     private String status;
+    private String lineStatus;
+    private String plantStatus;
 }

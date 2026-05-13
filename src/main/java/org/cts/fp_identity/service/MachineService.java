@@ -3,6 +3,7 @@ package org.cts.fp_identity.service;
 import lombok.RequiredArgsConstructor;
 import org.cts.fp_identity.dto.request.MachineRequest;
 import org.cts.fp_identity.dto.response.MachineResponse;
+import org.cts.fp_identity.exception.BadRequestException;
 import org.cts.fp_identity.exception.ResourceNotFoundException;
 import org.cts.fp_identity.model.Line;
 import org.cts.fp_identity.model.Machine;
@@ -24,6 +25,14 @@ public class MachineService {
     public MachineResponse createMachine(MachineRequest request) {
         Line line = lineRepository.findById(request.getLineId())
                 .orElseThrow(() -> new ResourceNotFoundException("Line not found: " + request.getLineId()));
+        if (!"ACTIVE".equalsIgnoreCase(line.getStatus())) {
+            throw new BadRequestException("Cannot create machine under line '" + line.getName()
+                    + "' — line is currently " + line.getStatus() + ".");
+        }
+        if (!"ACTIVE".equalsIgnoreCase(line.getPlant().getStatus())) {
+            throw new BadRequestException("Cannot create machine — parent plant '"
+                    + line.getPlant().getName() + "' is " + line.getPlant().getStatus() + ".");
+        }
         Machine machine = new Machine();
         machine.setLine(line);
         machine.setName(request.getName());
@@ -72,6 +81,14 @@ public class MachineService {
                 .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + id));
         Line line = lineRepository.findById(request.getLineId())
                 .orElseThrow(() -> new ResourceNotFoundException("Line not found: " + request.getLineId()));
+        if (!"ACTIVE".equalsIgnoreCase(line.getStatus())) {
+            throw new BadRequestException("Cannot reassign machine to line '" + line.getName()
+                    + "' — line is currently " + line.getStatus() + ".");
+        }
+        if (!"ACTIVE".equalsIgnoreCase(line.getPlant().getStatus())) {
+            throw new BadRequestException("Cannot reassign machine — parent plant '"
+                    + line.getPlant().getName() + "' is " + line.getPlant().getStatus() + ".");
+        }
         machine.setLine(line);
         machine.setName(request.getName());
         machine.setType(request.getType());
@@ -91,6 +108,8 @@ public class MachineService {
                 .plantName(m.getLine().getPlant().getName()).name(m.getName())
                 .type(m.getType()).model(m.getModel()).serialNumber(m.getSerialNumber())
                 .installDate(m.getInstallDate()).status(m.getStatus())
+                .lineStatus(m.getLine().getStatus())
+                .plantStatus(m.getLine().getPlant().getStatus())
                 .build();
     }
 }

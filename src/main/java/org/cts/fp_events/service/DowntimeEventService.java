@@ -36,7 +36,27 @@ public class DowntimeEventService {
     public DowntimeEventResponse createDowntime(DowntimeEventRequest request,
                                                 Long loggedById,
                                                 String loggedByName,
-                                                String loggedByEmployeeId) {
+                                                String loggedByEmployeeId,
+                                                String loggedByRole) {
+        // Only on-duty operators can log a downtime.
+        // Supervisors / Managers / Admins are allowed at any time.
+        if ("OPERATOR".equalsIgnoreCase(loggedByRole)) {
+            boolean onDuty = false;
+            try {
+                IdentityApiResponse<List<ShiftAllocationResponse>> onDutyResp = identityClient.getOnDuty(null);
+                if (onDutyResp != null && onDutyResp.getData() != null) {
+                    onDuty = onDutyResp.getData().stream()
+                            .anyMatch(a -> loggedById.equals(a.getUserId()));
+                }
+            } catch (Exception e) {
+                log.warn("Could not verify on-duty status for userId={}: {}", loggedById, e.getMessage());
+                throw new BadRequestException("Cannot verify your on-duty status right now. Please try again in a moment.");
+            }
+            if (!onDuty) {
+                throw new BadRequestException("Only on-duty operators can log a downtime. You are not currently allocated to any active shift.");
+            }
+        }
+
         // Resolve lineName / machineName from fp_identity when the frontend omits them
         // (matches monolith behaviour — monolith looks up from local LineRepository / MachineRepository)
         if (request.getLineName() == null || request.getLineName().isBlank()) {
@@ -114,6 +134,31 @@ public class DowntimeEventService {
         DowntimeEvent created = downtimeEventRepository.save(event);
         // Set machine status to DOWN (matches monolith)
         try { identityClient.updateMachineStatus(request.getMachineId(), "DOWN"); } catch (Exception e) { log.error("MACHINE STATUS UPDATE FAILED for machineId={}", request.getMachineId(), e); }
+
+        // Notify all supervisors
+        try {
+            IdentityApiResponse<List<UserInfo>> supResp = identityClient.getUsersByRole("SUPERVISOR");
+            if (supResp != null && supResp.getData() != null) {
+                for (UserInfo supervisor : supResp.getData()) {
+                    Notification notif = new Notification();
+                    notif.setUserId(supervisor.getUserId());
+                    notif.setEmployeeId(supervisor.getEmployeeId());
+                    notif.setUserName(supervisor.getName());
+                    notif.setAlertId(null);
+                    notif.setChannel("IN_APP");
+                    notif.setMessage("Downtime logged on Machine: " + event.getMachineName()
+                            + " | Line: " + event.getLineName()
+                            + " | Category: " + event.getCategory()
+                            + " | Logged by: " + loggedByName);
+                    notif.setSentAt(LocalDateTime.now());
+                    notif.setStatus("SENT");
+                    notificationRepository.save(notif);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to notify supervisors for downtime: {}", e.getMessage());
+        }
+
         try { identityClient.recordAuditLog(new AuditLogRequest("CREATE_DOWNTIME", "DowntimeEvent", "Created downtime ID: " + created.getDowntimeId() + " on machine: " + event.getMachineName())); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }
         return toDowntimeResponse(created);
     }
@@ -279,6 +324,30 @@ public class DowntimeEventService {
             notificationRepository.save(notification);
         } catch (Exception e) {
             log.warn("Failed to create corrective action notification: {}", e.getMessage());
+        }
+
+        // Notify all supervisors
+        try {
+            IdentityApiResponse<List<UserInfo>> supResp = identityClient.getUsersByRole("SUPERVISOR");
+            if (supResp != null && supResp.getData() != null) {
+                for (UserInfo supervisor : supResp.getData()) {
+                    Notification supNotif = new Notification();
+                    supNotif.setUserId(supervisor.getUserId());
+                    supNotif.setEmployeeId(supervisor.getEmployeeId());
+                    supNotif.setUserName(supervisor.getName());
+                    supNotif.setAlertId(null);
+                    supNotif.setChannel("IN_APP");
+                    supNotif.setMessage("New Corrective Action created for Machine: " + action.getMachineName()
+                            + " | Root Cause: " + action.getRootCauseCode()
+                            + " | Assigned To: " + assignedToName
+                            + " | Due: " + request.getDueDate());
+                    supNotif.setSentAt(LocalDateTime.now());
+                    supNotif.setStatus("SENT");
+                    notificationRepository.save(supNotif);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to notify supervisors for corrective action: {}", e.getMessage());
         }
 
         try { identityClient.recordAuditLog(new AuditLogRequest("CREATE_CORRECTIVE_ACTION", "CorrectiveAction", "Created corrective action ID: " + saved.getActionId() + " for downtime ID: " + request.getDowntimeId())); } catch (Exception e) { log.warn("Audit log failed: {}", e.getMessage()); }

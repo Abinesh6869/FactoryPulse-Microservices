@@ -37,7 +37,8 @@ public class DowntimeEventController {
                         downtimeService.createDowntime(request,
                                 principal.getUserId(),
                                 principal.getUsername(),
-                                principal.getEmployeeId())));
+                                principal.getEmployeeId(),
+                                principal.getRole())));
     }
 
     // GET /api/downtimes

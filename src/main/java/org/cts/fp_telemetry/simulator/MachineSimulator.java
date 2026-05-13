@@ -23,6 +23,9 @@ public class MachineSimulator {
     private final Random random = new Random();
 
     public void emitTelemetry(MachineInfo machine) {
+        // Stop emission if the parent line or plant is not ACTIVE
+        if (machine.getLineStatus() != null && !"ACTIVE".equalsIgnoreCase(machine.getLineStatus())) return;
+        if (machine.getPlantStatus() != null && !"ACTIVE".equalsIgnoreCase(machine.getPlantStatus())) return;
         boolean active = "ACTIVE".equalsIgnoreCase(machine.getStatus());
         List<TelemetryPointInfo> points;
         try {
@@ -49,6 +52,7 @@ public class MachineSimulator {
             event.setLineId(machine.getLineId());
             event.setLineName(machine.getLineName());
             event.setValue(value);
+            event.setUnit(tp.getUnit());
             event.setSource("SIMULATOR");
             event.setStatus("OK");
             telemetryEventRepository.save(event);

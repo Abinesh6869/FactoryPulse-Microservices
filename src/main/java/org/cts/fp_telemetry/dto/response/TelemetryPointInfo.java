@@ -11,4 +11,5 @@ public class TelemetryPointInfo {
     private Long pointId;
     private String name;
     private Long machineId;
+    private String unit;
 }

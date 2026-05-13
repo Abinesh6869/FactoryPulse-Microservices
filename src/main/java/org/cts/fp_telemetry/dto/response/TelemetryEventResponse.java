@@ -17,6 +17,7 @@ public class TelemetryEventResponse {
     private String lineName;
     private LocalDateTime timestamp;
     private String value;
+    private String unit;
     private String source;
     private String status;
 }

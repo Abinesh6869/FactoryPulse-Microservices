@@ -13,4 +13,6 @@ public class MachineInfo {
     private String status;
     private Long lineId;
     private String lineName;
+    private String lineStatus;
+    private String plantStatus;
 }

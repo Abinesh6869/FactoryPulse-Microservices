@@ -33,11 +33,17 @@ public class TelemetryService {
     public Page<TelemetryEventResponse> getEventsByMachine(Long machineId, LocalDateTime from, LocalDateTime to, Pageable pageable) {
         try {
             IdentityApiResponse<MachineInfo> machineResp = identityClient.getMachineById(machineId);
-            if (machineResp != null && machineResp.getData() != null
-                    && !"ACTIVE".equalsIgnoreCase(machineResp.getData().getStatus())) {
-                return Page.empty(pageable);
+            if (machineResp != null && machineResp.getData() != null) {
+                MachineInfo m = machineResp.getData();
+                if (!"ACTIVE".equalsIgnoreCase(m.getStatus()))
+                    throw new BadRequestException("Machine '" + m.getName() + "' is currently " + m.getStatus() + ". Telemetry is stopped.");
+                if (m.getLineStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getLineStatus()))
+                    throw new BadRequestException("Line '" + m.getLineName() + "' is currently " + m.getLineStatus() + ". Telemetry is stopped.");
+                if (m.getPlantStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getPlantStatus()))
+                    throw new BadRequestException("Plant is currently " + m.getPlantStatus() + ". Telemetry is stopped.");
             }
-        } catch (Exception e) {
+        } catch (BadRequestException ex) { throw ex; }
+        catch (Exception e) {
             log.warn("Could not check machine status for machineId={}: {}", machineId, e.getMessage());
         }
         if (from == null || to == null) {
@@ -67,14 +73,19 @@ public class TelemetryService {
     }
 
     public List<TelemetryEventResponse> getLatestEventsByMachine(Long machineId) {
-        // Return empty if machine is not currently ACTIVE — no live telemetry when machine is off
         try {
             IdentityApiResponse<MachineInfo> machineResp = identityClient.getMachineById(machineId);
-            if (machineResp != null && machineResp.getData() != null
-                    && !"ACTIVE".equalsIgnoreCase(machineResp.getData().getStatus())) {
-                return List.of();
+            if (machineResp != null && machineResp.getData() != null) {
+                MachineInfo m = machineResp.getData();
+                if (!"ACTIVE".equalsIgnoreCase(m.getStatus()))
+                    throw new BadRequestException("Machine '" + m.getName() + "' is currently " + m.getStatus() + ". Telemetry is stopped.");
+                if (m.getLineStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getLineStatus()))
+                    throw new BadRequestException("Line '" + m.getLineName() + "' is currently " + m.getLineStatus() + ". Telemetry is stopped.");
+                if (m.getPlantStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getPlantStatus()))
+                    throw new BadRequestException("Plant is currently " + m.getPlantStatus() + ". Telemetry is stopped.");
             }
-        } catch (Exception e) {
+        } catch (BadRequestException ex) { throw ex; }
+        catch (Exception e) {
             log.warn("Could not check machine status for machineId={}: {}", machineId, e.getMessage());
         }
         return telemetryEventRepository
@@ -136,20 +147,28 @@ public class TelemetryService {
     // ------------------------------------------------------------------
 
     public TelemetryEventResponse createEvent(TelemetryEventRequest req) {
-        // Block telemetry creation for machines that are not ACTIVE
+        // Block telemetry creation if machine, its line, or its plant is not ACTIVE
         if (req.getMachineId() != null) {
             try {
                 IdentityApiResponse<MachineInfo> machineResp = identityClient.getMachineById(req.getMachineId());
                 if (machineResp != null && machineResp.getData() != null) {
-                    String machineStatus = machineResp.getData().getStatus();
-                    if (!"ACTIVE".equalsIgnoreCase(machineStatus)) {
+                    MachineInfo m = machineResp.getData();
+                    if (!"ACTIVE".equalsIgnoreCase(m.getStatus())) {
                         throw new BadRequestException("Cannot create telemetry event for machine '"
-                                + machineResp.getData().getName() + "' — machine is currently " + machineStatus + ".");
+                                + m.getName() + "' — machine is currently " + m.getStatus() + ".");
+                    }
+                    if (m.getLineStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getLineStatus())) {
+                        throw new BadRequestException("Cannot create telemetry event — the line for machine '"
+                                + m.getName() + "' is currently " + m.getLineStatus() + ".");
+                    }
+                    if (m.getPlantStatus() != null && !"ACTIVE".equalsIgnoreCase(m.getPlantStatus())) {
+                        throw new BadRequestException("Cannot create telemetry event — the plant for machine '"
+                                + m.getName() + "' is currently " + m.getPlantStatus() + ".");
                     }
                 }
             } catch (BadRequestException ex) { throw ex; }
             catch (Exception e) {
-                log.warn("Could not validate machine status for machineId={}: {}", req.getMachineId(), e.getMessage());
+                log.warn("Could not validate machine/line/plant status for machineId={}: {}", req.getMachineId(), e.getMessage());
             }
         }
         TelemetryEvent event = new TelemetryEvent();
@@ -201,6 +220,7 @@ public class TelemetryService {
                 .lineName(e.getLineName())
                 .timestamp(e.getTimeStamp())
                 .value(e.getValue())
+                .unit(e.getUnit())
                 .source(e.getSource())
                 .status(e.getStatus())
                 .build();

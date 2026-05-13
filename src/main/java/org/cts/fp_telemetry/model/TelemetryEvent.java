@@ -44,6 +44,8 @@ public class TelemetryEvent {
 
     private String value;
 
+    private String unit;
+
     private String source;
 
     private String status;
